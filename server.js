@@ -13,7 +13,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-16";
+const SERVER_BUILD_ID = "exam-demo-build-17";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -621,6 +621,76 @@ function runSeedAisTrialScenario() {
   };
 }
 
+const TRIO_DEMO_MODEL_ID = "upload-trio-demo";
+
+function runSeedTrioScenario() {
+  const students = [
+    {
+      studentId: "DEMO-S1",
+      fullName: "Demo Student One",
+      email: "demo.s1@school.demo",
+      stage: "Secondary",
+      grade: "Grade 10",
+    },
+    {
+      studentId: "DEMO-S2",
+      fullName: "Demo Student Two",
+      email: "demo.s2@school.demo",
+      stage: "Secondary",
+      grade: "Grade 10",
+    },
+    {
+      studentId: "DEMO-S3",
+      fullName: "Demo Student Three",
+      email: "demo.s3@school.demo",
+      stage: "Secondary",
+      grade: "Grade 10",
+    },
+  ];
+  const teachers = [
+    { staffId: "DEMO-T1", fullName: "Demo Teacher One", email: "demo.t1@school.demo", supervisedGrade: "Grade 10" },
+    { staffId: "DEMO-T2", fullName: "Demo Teacher Two", email: "demo.t2@school.demo", supervisedGrade: "Grade 10" },
+    { staffId: "DEMO-T3", fullName: "Demo Teacher Three", email: "demo.t3@school.demo", supervisedGrade: "Grade 10" },
+  ];
+  state.answers = {};
+  resetStudentExamRuntimeFlags();
+  state.incidents = [];
+  state.integrityEvents = [];
+  state.students = students;
+  state.teachers = teachers;
+  state.uploadedQuestionModels = state.uploadedQuestionModels.filter((m) => m.id !== TRIO_DEMO_MODEL_ID);
+  state.uploadedQuestionModels.push({
+    id: TRIO_DEMO_MODEL_ID,
+    label: "Trio demo paper (10 MCQ)",
+    questions: aisTrialQuestionList(),
+    uploadedAt: new Date().toISOString(),
+    uploadedByStaffId: teachers[0].staffId,
+  });
+  const ex = state.examSession;
+  const now = Date.now();
+  ex.targetGrade = "Grade 10";
+  ex.roomCount = 1;
+  ex.lobbyOpensMinutesBefore = 120;
+  ex.examStartAt = new Date(now + 2 * 60000).toISOString();
+  ex.examEndAt = new Date(now + 10 * 60000).toISOString();
+  ex.selectedModelId = TRIO_DEMO_MODEL_ID;
+  ex.paperDrawCount = null;
+  ex.rooms = [];
+  ensureRoomsBuilt();
+  for (const r of ex.rooms) {
+    r.proctorsRequired = 3;
+    r.proctorStaffIds = teachers.map((t) => t.staffId);
+  }
+  ex.published = true;
+  return {
+    students: students.map((s) => ({ role: "student", userId: s.studentId, displayName: s.fullName })),
+    teachers: teachers.map((t) => ({ role: "proctor", userId: t.staffId, displayName: t.fullName })),
+    admin: { role: "admin", userId: "admin", displayName: "Administration" },
+    grade: "Grade 10",
+    note: "Three students, three proctors, one room. Use Live control → Observe to open the room command center in a new tab.",
+  };
+}
+
 function studentById(id) {
   return state.students.find((s) => s.studentId === id);
 }
@@ -1145,15 +1215,23 @@ app.delete("/api/admin/question-models/:id", (req, res) => {
   res.json({ ok: true, state: publicSnapshot() });
 });
 
-/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. JSON body {"variant":"ais"} loads the Hala+Rojan trial. */
+/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. JSON body {"variant":"ais"} or {"variant":"trio"}. */
 app.post("/api/admin/seed-demo-roster", (req, res) => {
   const b = req.body || {};
   const qv = String(req.query?.variant || req.query?.mode || "").toLowerCase();
   const wantAis =
     b.variant === "ais" || b.mode === "ais" || b.trial === "ais" || qv === "ais" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "ais";
+  const wantTrio =
+    b.variant === "trio" || b.mode === "trio" || qv === "trio" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "trio";
   if (wantAis) {
     const scenario = runSeedAisTrialScenario();
     appendAudit("seed_ais_trial", "AIS Hala + Rojan scenario", { actorRole: "admin", actorId: "admin" });
+    io.emit("state:update", publicSnapshot());
+    return res.json({ ok: true, scenario, state: publicSnapshot() });
+  }
+  if (wantTrio) {
+    const scenario = runSeedTrioScenario();
+    appendAudit("seed_trio_demo", "Three students + three teachers demo", { actorRole: "admin", actorId: "admin" });
     io.emit("state:update", publicSnapshot());
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }
@@ -1428,6 +1506,22 @@ app.get("/api/exam/room/:roomId/students", (req, res) => {
     return { studentId: sid, fullName: st?.fullName || sid };
   });
   res.json({ ok: true, roomId: room.id, roomLabel: room.label, students });
+});
+
+app.get("/api/admin/room/:roomId/mcq-rows", (req, res) => {
+  const room = roomEntityById(req.params.roomId);
+  if (!room) return res.status(404).json({ ok: false, error: "Unknown room." });
+  const rows = room.studentIds.map((sid) => {
+    const st = studentById(sid);
+    return { studentId: sid, fullName: st?.fullName || sid, ...computeMcqScoreForStudent(sid) };
+  });
+  res.json({
+    ok: true,
+    roomId: room.id,
+    roomLabel: room.label,
+    examEndAt: state.examSession.examEndAt,
+    rows,
+  });
 });
 
 app.post("/api/student/:studentId/answer", (req, res) => {

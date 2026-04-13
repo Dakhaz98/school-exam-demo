@@ -724,7 +724,7 @@ function paintLiveTab() {
     const tr = document.createElement("tr");
     const staff = (r.proctorStaffIds || []).join(", ");
     tr.innerHTML = `<td>${escapeHtml(r.label)}</td><td>${r.studentCount}</td><td>${r.proctorsRequired}</td><td>${escapeHtml(staff || "none")}</td>
-      <td><button type="button" class="secondary observe" data-room="${escapeAttr(r.id)}">Observe</button></td>`;
+      <td><button type="button" class="secondary observe" data-room="${escapeAttr(r.id)}">Open command center</button></td>`;
     tbody.appendChild(tr);
   });
   tbody.querySelectorAll(".observe").forEach((btn) => {
@@ -874,6 +874,7 @@ async function enterApp() {
 }
 
 function logout() {
+  closeAdminRoomCommandCenter();
   if (studentExamCountdown) {
     clearInterval(studentExamCountdown);
     studentExamCountdown = null;
@@ -968,6 +969,33 @@ function bindAdminUploads() {
         await refreshState();
       } catch (e) {
         if (out) out.textContent = e.message || String(e);
+        alert(e.message || String(e));
+      }
+    };
+  }
+  const seedTrioBtn = $("#btn-seed-trio");
+  if (seedTrioBtn) {
+    seedTrioBtn.onclick = async () => {
+      const out = $("#seed-trio-result");
+      try {
+        const r = await api("/api/admin/seed-demo-roster?variant=trio", {
+          method: "POST",
+          body: JSON.stringify({ variant: "trio" }),
+        });
+        const sc = r.scenario;
+        if (out) {
+          if (!sc?.students?.length) {
+            out.textContent = "Server did not return the trio scenario summary. Check build and try again.";
+          } else {
+            const ids = sc.students.map((x) => x.userId).join(", ");
+            const tids = (sc.teachers || []).map((x) => x.userId).join(", ");
+            out.innerHTML = `<strong>Trio loaded.</strong> Students: <code>${escapeHtml(ids)}</code><br/>Teachers: <code>${escapeHtml(tids)}</code><br/><span class="hint">${escapeHtml(sc.note || "")}</span>`;
+          }
+        }
+        await refreshState();
+      } catch (e) {
+        const el = $("#seed-trio-result");
+        if (el) el.textContent = e.message || String(e);
         alert(e.message || String(e));
       }
     };
@@ -1069,52 +1097,197 @@ function bindLiveTab() {
   };
 }
 
-function openObserve(roomId) {
-  $("#observe-title").textContent = `Observing ${roomId}`;
-  $("#modal-observe").classList.remove("hidden");
-  const log = $("#observe-log");
-  log.innerHTML = "";
-  const wall = $("#observe-video-wall");
-  if (wall) wall.innerHTML = "";
+const LS_ADMIN_ROOM_LAUNCH = "examDemoAdminRoomLaunch";
+
+/** @type {null | (() => void)} */
+let adminRoomSocketCleanup = null;
+
+async function refreshAdminRoomMcq(roomId) {
+  const hint = $("#admin-room-mcq-hint");
+  const body = $("#admin-room-mcq-body");
+  if (!hint || !body) return;
+  hint.textContent = "Loading…";
+  body.innerHTML = "";
+  try {
+    const g = await api(`/api/admin/room/${encodeURIComponent(roomId)}/mcq-rows`);
+    hint.textContent = `Room: ${g.roomLabel} (${g.roomId}).`;
+    for (const row of g.rows || []) {
+      const tr = document.createElement("tr");
+      const pct = row.percent == null ? "—" : `${row.percent}%`;
+      const keyed = row.questionsWithKey ?? 0;
+      const corr = row.correctCount ?? 0;
+      tr.innerHTML = `<td>${escapeHtml(row.fullName)} <span class="hint">(${escapeHtml(row.studentId)})</span></td><td>${corr}</td><td>${keyed}</td><td>${pct}</td>`;
+      body.appendChild(tr);
+    }
+  } catch (e) {
+    hint.textContent = e.message || String(e);
+  }
+}
+
+function closeAdminRoomCommandCenter() {
+  const overlay = $("#admin-room-overlay");
+  if (!overlay || overlay.classList.contains("hidden")) return;
+  adminRoomSocketCleanup?.();
+  adminRoomSocketCleanup = null;
+  viewerRtcTeardown?.();
+  viewerRtcTeardown = null;
+  webRtcViewerHandler = null;
+  lastCameraViewCtx = null;
+  const roomId = overlay.dataset.roomId;
   const s = loadSession();
+  if (roomId && s?.userId) {
+    socket?.emit("room:leave", { roomId, userId: s.userId, role: "admin" });
+  }
+  const wall = $("#admin-room-video-wall");
+  if (wall) wall.innerHTML = "";
+  const log = $("#admin-room-log");
+  if (log) log.innerHTML = "";
+  overlay.classList.add("hidden");
+  overlay.setAttribute("aria-hidden", "true");
+  delete overlay.dataset.roomId;
+  showTab("live");
+}
+
+function openAdminRoomCommandCenter(roomId) {
+  adminRoomSocketCleanup?.();
+  adminRoomSocketCleanup = null;
+  closeAdminRoomCommandCenter();
+  const overlay = $("#admin-room-overlay");
+  if (!overlay) return;
+  const s = loadSession();
+  if (!s || s.role !== "admin") {
+    alert("Log in as Administration to use the room command center.");
+    return;
+  }
+  overlay.dataset.roomId = roomId;
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+
+  const titleEl = $("#admin-room-title");
+  if (titleEl) titleEl.textContent = `Room command center — ${roomId}`;
+
+  const log = $("#admin-room-log");
+  if (log) log.innerHTML = "";
+  const wall = $("#admin-room-video-wall");
+  if (wall) wall.innerHTML = "";
+
   socket.emit("room:join", { roomId, userId: s.userId, role: "admin" }, () => {});
   if (wall) void startProctorViewCameras(roomId, s.userId, "admin", wall);
-  const obsRefBtn = $("#btn-observe-refresh-cam");
-  if (obsRefBtn) {
-    obsRefBtn.onclick = () => {
-      const w = $("#observe-video-wall");
-      if (w) void startProctorViewCameras(roomId, s.userId, "admin", w);
-    };
-  }
+
+  $("#btn-admin-room-refresh-cam").onclick = () => {
+    const w = $("#admin-room-video-wall");
+    if (w) void startProctorViewCameras(roomId, s.userId, "admin", w);
+  };
+  void refreshAdminRoomMcq(roomId);
+  $("#btn-admin-room-mcq-refresh").onclick = () => void refreshAdminRoomMcq(roomId);
+
+  $("#btn-admin-room-pm-send").onclick = () => {
+    const to = $("#admin-room-pm-to").value.trim();
+    const text = $("#admin-room-pm-text").value.trim();
+    if (!to || !text) return;
+    socket.emit("chat:private", { fromUserId: s.userId, toUserId: to, text, roomId });
+    $("#admin-room-pm-text").value = "";
+    if (log) {
+      const line = document.createElement("div");
+      line.textContent = `[private] you → ${to}: ${text}`;
+      log.prepend(line);
+    }
+  };
 
   const onRoster = (p) => {
-    if (p.roomId !== roomId) return;
+    if (p.roomId !== roomId || !log) return;
     const line = document.createElement("div");
     line.textContent = `[roster] ${p.event}: ${p.displayName} (${p.role})`;
     log.prepend(line);
   };
   const onInt = (ev) => {
-    if (ev.roomId !== roomId) return;
+    if (ev.roomId !== roomId || !log) return;
     const line = document.createElement("div");
     line.textContent = `[integrity] ${ev.studentId || ""} ${ev.type}: ${ev.detail}`;
     log.prepend(line);
   };
-  socket.off("room:roster");
-  socket.off("integrity:event");
   socket.on("room:roster", onRoster);
   socket.on("integrity:event", onInt);
 
-  $("#btn-close-observe").onclick = () => {
-    viewerRtcTeardown?.();
-    viewerRtcTeardown = null;
-    webRtcViewerHandler = null;
-    lastCameraViewCtx = null;
-    socket.emit("room:leave", { roomId, userId: s.userId, role: "admin" });
+  adminRoomSocketCleanup = () => {
     socket.off("room:roster", onRoster);
     socket.off("integrity:event", onInt);
-    if (wall) wall.innerHTML = "";
-    $("#modal-observe").classList.add("hidden");
   };
+
+  $("#btn-admin-room-back").onclick = () => closeAdminRoomCommandCenter();
+}
+
+function openObserve(roomId) {
+  const s = loadSession();
+  if (!s || s.role !== "admin") {
+    alert("Log in as Administration first, then open Live control.");
+    return;
+  }
+  try {
+    localStorage.setItem(
+      LS_ADMIN_ROOM_LAUNCH,
+      JSON.stringify({
+        role: s.role,
+        userId: s.userId,
+        displayName: s.displayName || s.userId,
+        exp: Date.now() + 180000,
+      })
+    );
+  } catch (e) {
+    console.warn(e);
+    openAdminRoomCommandCenter(roomId);
+    return;
+  }
+  const u = new URL(window.location.href);
+  u.searchParams.set("admin_room", roomId);
+  const win = window.open(u.toString(), "_blank", "noopener,noreferrer");
+  if (!win) openAdminRoomCommandCenter(roomId);
+}
+
+async function maybeBootstrapAdminRoomTab() {
+  const params = new URLSearchParams(window.location.search);
+  const room = params.get("admin_room");
+  if (!room) return false;
+  let raw;
+  try {
+    raw = localStorage.getItem(LS_ADMIN_ROOM_LAUNCH);
+  } catch {
+    return false;
+  }
+  if (!raw) {
+    try {
+      history.replaceState({}, "", window.location.pathname);
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    localStorage.removeItem(LS_ADMIN_ROOM_LAUNCH);
+    history.replaceState({}, "", window.location.pathname);
+    return false;
+  }
+  if (Date.now() > data.exp || data.role !== "admin") {
+    localStorage.removeItem(LS_ADMIN_ROOM_LAUNCH);
+    history.replaceState({}, "", window.location.pathname);
+    return false;
+  }
+  localStorage.removeItem(LS_ADMIN_ROOM_LAUNCH);
+  try {
+    history.replaceState({}, "", window.location.pathname);
+  } catch {
+    /* ignore */
+  }
+  $("#role").value = "admin";
+  $("#userId").value = data.userId;
+  $("#displayName").value = data.displayName || "Administration";
+  syncUserIdLabel();
+  await enterApp();
+  openAdminRoomCommandCenter(room);
+  return true;
 }
 
 async function refreshProctorMcqScores() {
@@ -1530,8 +1703,9 @@ function bindStudent() {
       if (step.completed) {
         const done = document.createElement("p");
         done.className = "hint";
-        done.innerHTML =
-          "<strong>Exam complete.</strong> You have finished this attempt and submitted every question. When the countdown reaches zero, your automatic MCQ summary may unlock below (if the paper has a key).";
+        done.innerHTML = step.leftRoom
+          ? "<strong>Exam complete.</strong> You submitted every question, left the exam room, and your camera and microphone are stopped. The timer above still runs until the scheduled end; then your MCQ summary may unlock below (if the paper has a key)."
+          : "<strong>Exam complete.</strong> You have finished this attempt and submitted every question. When the countdown reaches zero, your automatic MCQ summary may unlock below (if the paper has a key).";
         area.appendChild(done);
         return;
       }
@@ -1572,6 +1746,12 @@ function bindStudent() {
       submitRow.style.marginTop = "0.75rem";
       submitBtn.onclick = async () => {
         if (selected == null) return;
+        if (isLast) {
+          const ok = window.confirm(
+            "Are you sure you want to finish the exam? Your answers will be submitted, your camera and microphone will stop, and you will leave the exam room."
+          );
+          if (!ok) return;
+        }
         submitBtn.disabled = true;
         try {
           const next = await api(`/api/student/${encodeURIComponent(sid)}/exam-submit`, {
@@ -1579,7 +1759,18 @@ function bindStudent() {
             body: JSON.stringify({ questionId: q.id, choiceIndex: selected }),
           });
           if (next.completed) {
-            renderQuestionStep({ completed: true, total: next.total });
+            stopIntegrity();
+            studentWebRtcStop?.();
+            studentWebRtcStop = null;
+            try {
+              const stream = v.srcObject;
+              if (stream?.getTracks) stream.getTracks().forEach((tr) => tr.stop());
+              v.srcObject = null;
+            } catch {
+              /* ignore */
+            }
+            socket?.emit("room:leave", { roomId: place.roomId, userId: sid, role: "student" });
+            renderQuestionStep({ completed: true, total: next.total, leftRoom: true });
           } else {
             renderQuestionStep({ ...next, completed: false });
           }
@@ -1597,7 +1788,7 @@ function bindStudent() {
   };
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   bindConnectionPanel();
   probeBackendOnce();
   setInterval(() => probeBackendOnce(), 60000);
@@ -1631,5 +1822,6 @@ document.addEventListener("DOMContentLoaded", () => {
   bindLiveTab();
   bindProctor();
   bindStudent();
-  renderLogin();
+  const booted = await maybeBootstrapAdminRoomTab();
+  if (!booted) renderLogin();
 });

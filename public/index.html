@@ -71,7 +71,7 @@
           <ol class="hint" style="margin: 0.65rem 0 0; padding-left: 1.25rem; line-height: 1.65">
             <li>Open <strong>three tabs</strong> to the same site address (for example three times <kbd>Ctrl+T</kbd>). Each tab remembers its own role.</li>
             <li>
-              <strong>Tab 1 – Administration:</strong> Load AIS trial scenario on <strong>Rosters &amp; Excel</strong>, then you can stay on <strong>Live control</strong> to watch rooms. There is no separate &quot;approve each student&quot; button; the lobby opens by time for this trial.
+              <strong>Tab 1 – Administration:</strong> Load a demo scenario on <strong>Rosters &amp; Excel</strong>, then use <strong>Live control</strong> → <strong>Open command center</strong> on a room: a <strong>new tab</strong> opens with the full room dashboard (same tools as the teacher view). If the pop-up is blocked, the command center opens in the current tab instead.
             </li>
             <li>
               <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. You will see a grid of student camera feeds (WebRTC demo), the room log, and integrity flags.
@@ -190,6 +190,15 @@
             </p>
             <button type="button" id="btn-seed-ais-trial">Load AIS trial scenario</button>
             <p class="hint" id="seed-ais-result" style="margin-top: 0.65rem"></p>
+          </div>
+          <div class="panel">
+            <h2>Small demo (3 students + 3 teachers)</h2>
+            <p class="hint">
+              Three students <strong>DEMO-S1</strong>, <strong>DEMO-S2</strong>, <strong>DEMO-S3</strong> and three teachers <strong>DEMO-T1</strong>–<strong>DEMO-T3</strong> in
+              <strong>Grade 10</strong>, one room, three proctor slots filled, same 10-question paper style as the AIS trial, lobby open for testing, published.
+            </p>
+            <button type="button" class="ghost" id="btn-seed-trio">Load trio demo roster</button>
+            <p class="hint" id="seed-trio-result" style="margin-top: 0.65rem"></p>
           </div>
           <details class="panel">
             <summary style="cursor: pointer; font-weight: 600">Professional capability map (this build vs roadmap)</summary>
@@ -345,7 +354,7 @@
                   <th>Students</th>
                   <th>Required proctors</th>
                   <th>Assigned staff</th>
-                  <th>Observe</th>
+                  <th>Room command center</th>
                 </tr>
               </thead>
               <tbody id="live-rooms-body"></tbody>
@@ -535,18 +544,51 @@
         </section>
       </div>
 
-      <div id="modal-observe" class="modal-backdrop hidden">
-        <div class="modal" style="max-width: 920px">
-          <h3 id="observe-title">Room observation</h3>
+      <div id="admin-room-overlay" class="admin-room-overlay hidden" aria-hidden="true">
+        <header class="admin-room-bar">
+          <button type="button" class="secondary" id="btn-admin-room-back">← Back to Live control</button>
+          <h2 id="admin-room-title" style="margin: 0; font-size: 1.05rem">Room command center</h2>
+        </header>
+        <div class="admin-room-inner">
           <p class="hint">
-            Administration can open any exam room: live student camera tiles (same WebRTC demo as the proctor desk), roster joins, and integrity flags. Production deployments typically add a media server and TURN.
+            Full-page view (also opens in a <strong>new browser tab</strong> when you use Observe). Matches the proctor desk: live student cameras, private messages, MCQ scores for this room, roster and integrity log.
           </p>
-          <div id="observe-video-wall" class="video-wall" style="margin-bottom: 0.75rem"></div>
-          <div class="row" style="margin-bottom: 0.5rem">
-            <button type="button" class="secondary" id="btn-observe-refresh-cam">Refresh camera connections</button>
+          <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem">
+            <button type="button" class="secondary" id="btn-admin-room-refresh-cam">Refresh camera connections</button>
           </div>
-          <div id="observe-log" class="log" style="max-height: 220px"></div>
-          <button type="button" class="secondary" id="btn-close-observe" style="margin-top: 0.75rem">Close</button>
+          <div id="admin-room-video-wall" class="video-wall"></div>
+          <div class="panel" style="margin-top: 1rem">
+            <h3 style="margin-top: 0">Private message to Student ID</h3>
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem">
+              <label>
+                Student ID
+                <input id="admin-room-pm-to" type="text" placeholder="D50435" />
+              </label>
+              <label style="flex: 1; min-width: 12rem">
+                Message
+                <input id="admin-room-pm-text" type="text" />
+              </label>
+              <button type="button" class="secondary" id="btn-admin-room-pm-send">Send private</button>
+            </div>
+          </div>
+          <div class="panel" style="margin-top: 1rem">
+            <h3 style="margin-top: 0">Automatic MCQ scores (this room)</h3>
+            <button type="button" class="secondary" id="btn-admin-room-mcq-refresh">Refresh MCQ scores</button>
+            <p class="hint" id="admin-room-mcq-hint" style="margin-top: 0.5rem"></p>
+            <table style="margin-top: 0.5rem">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Correct</th>
+                  <th>Keyed</th>
+                  <th>Percent</th>
+                </tr>
+              </thead>
+              <tbody id="admin-room-mcq-body"></tbody>
+            </table>
+          </div>
+          <h3 style="margin-top: 1.25rem">Roster &amp; integrity log</h3>
+          <div id="admin-room-log" class="log" style="max-height: 280px"></div>
         </div>
       </div>
     </main>
