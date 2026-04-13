@@ -10,3 +10,7 @@ yarn-error.log*
 
 # Exam evidence (append-only JSONL per student; do not commit real attempts)
 data/exam-evidence/
+data/exam-platform.db
+data/exam-platform.db-shm
+data/exam-platform.db-wal
+data/logs/

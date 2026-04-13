@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>School Exam Platform (trial)</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/rtl.css" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -35,7 +36,12 @@
           <p class="hint" id="conn-msg"></p>
         </div>
       </details>
-      <div class="row" style="align-items: center">
+      <div class="row" style="align-items: center; gap: 0.5rem">
+        <div class="row" style="align-items: center; gap: 0.25rem" aria-label="Interface language">
+          <span class="hint" style="font-size: 0.72rem">UI</span>
+          <button type="button" class="secondary ghost" id="btn-lang-en" title="English">EN</button>
+          <button type="button" class="secondary ghost" id="btn-lang-ar" title="العربية">عربي</button>
+        </div>
         <span id="whoami" class="hint"></span>
         <button type="button" class="secondary hidden" id="btn-logout">Log out</button>
       </div>
@@ -100,6 +106,21 @@
           <label>
             Display name (optional)
             <input id="displayName" type="text" autocomplete="name" />
+          </label>
+          <label id="exam-key-label-wrap" class="hidden" style="flex: 1; min-width: 12rem">
+            <span data-i18n-en="Exam access key (if your school enabled it)" data-i18n-ar="مفتاح الوصول للامتحان (إن فعّلته المدرسة)"
+              >Exam access key (if your school enabled it)</span>
+            <input
+              id="exam-access-key"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              data-i18n-placeholder-en="Same key as in Live control"
+              data-i18n-placeholder-ar="نفس المفتاح من لوحة التحكم المباشر"
+              placeholder="Same key as in Live control"
+            />
+            <small class="hint" data-i18n-en="Stored only in this browser. Required for student actions when the server has a key set." data-i18n-ar="يُخزَّن في هذا المتصفح فقط. مطلوب لإجراءات الطالب عندما يكون للخادم مفتاح."
+              >Stored only in this browser. Required for student actions when the server has a key set.</small>
           </label>
           <button type="button" id="btn-login" aria-describedby="user-id-label">Continue</button>
         </div>
@@ -345,6 +366,23 @@
               <button type="button" class="warn" id="btn-open-lobby">Open lobby now (testing)</button>
             </div>
             <p class="hint" id="live-timing-hint"></p>
+          </div>
+          <div class="panel">
+            <h2 data-i18n-en="Exam access key" data-i18n-ar="مفتاح الوصول للامتحان">Exam access key</h2>
+            <p class="hint" id="live-access-key-msg"></p>
+            <div class="row" style="align-items: flex-end">
+              <label style="flex: 1; min-width: 12rem">
+                <span data-i18n-en="Set or change key (leave blank to clear)" data-i18n-ar="تعيين أو تغيير المفتاح (اتركه فارغًا لإلغائه)"
+                  >Set or change key (leave blank to clear)</span>
+                <input id="live-exam-access-key" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <button type="button" class="secondary" id="btn-live-access-key-save" data-i18n-en="Save key" data-i18n-ar="حفظ المفتاح">Save key</button>
+            </div>
+            <p
+              class="hint"
+              data-i18n-en="When a key is set, student browsers must enter the same value on the login screen before Continue."
+              data-i18n-ar="عند تعيين مفتاح، يجب على الطلاب إدخال القيمة نفسها في شاشة تسجيل الدخول قبل المتابعة."
+              >When a key is set, student browsers must enter the same value on the login screen before Continue.</p>
           </div>
           <div class="panel">
             <h2>Rooms</h2>

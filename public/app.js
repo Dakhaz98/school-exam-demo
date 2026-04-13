@@ -18,6 +18,26 @@ let studentExamCountdown = null;
 let proctorWaitlistTimer = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let studentEntryPollTimer = null;
+/** @type {null | (() => void)} */
+let studentTabVisibilityCleanup = null;
+
+function setupStudentTabVisibilityWatch(roomId, studentId) {
+  studentTabVisibilityCleanup?.();
+  const onVis = () => {
+    if (document.visibilityState === "hidden") {
+      try {
+        socket?.emit("exam:visibility", { roomId, studentId, hidden: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  document.addEventListener("visibilitychange", onVis);
+  studentTabVisibilityCleanup = () => {
+    document.removeEventListener("visibilitychange", onVis);
+    studentTabVisibilityCleanup = null;
+  };
+}
 
 function clearProctorWaitlistPoll() {
   if (proctorWaitlistTimer) {
@@ -33,7 +53,10 @@ function clearStudentEntryPollTimer() {
   }
 }
 
-const WEBRTC_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+const WEBRTC_ICE_SERVERS = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+  { urls: "stun:global.stun.twilio.com:3478" },
+];
 
 /** @type {null | ((msg: any) => void)} */
 let webRtcStudentHandler = null;
@@ -48,6 +71,66 @@ let viewerRtcTeardown = null;
 let lastCameraViewCtx = null;
 
 const LS_API_ORIGIN = "examDemoApiOrigin";
+const LS_EXAM_ACCESS_KEY = "examDemoAccessKey";
+const LS_UI_LANG = "examDemoUiLang";
+
+function isRtlUi() {
+  return document.documentElement.getAttribute("dir") === "rtl";
+}
+
+function syncI18nStaticLabels() {
+  document.querySelectorAll("[data-i18n-en][data-i18n-ar]").forEach((el) => {
+    const en = el.getAttribute("data-i18n-en") || "";
+    const ar = el.getAttribute("data-i18n-ar") || en;
+    el.textContent = isRtlUi() ? ar : en;
+  });
+  document.querySelectorAll("[data-i18n-placeholder-en]").forEach((el) => {
+    const en = el.getAttribute("data-i18n-placeholder-en") || "";
+    const ar = el.getAttribute("data-i18n-placeholder-ar") || en;
+    el.setAttribute("placeholder", isRtlUi() ? ar : en);
+  });
+}
+
+function liveAccessKeyStatusHint() {
+  if (!stateCache || typeof stateCache.requiresExamAccessKey !== "boolean") return "";
+  if (stateCache.requiresExamAccessKey) {
+    return isRtlUi()
+      ? "مفعّل على الخادم — يجب أن يطابق الطلاب المفتاح نفسه في شاشة الدخول."
+      : "Enabled on the server — students must enter the same key on the login screen.";
+  }
+  return isRtlUi() ? "غير مفعّل حاليًا — مفتاح الوصول اختياري." : "Not enabled right now — exam access key is optional.";
+}
+
+function paintLiveAccessKeyMsg() {
+  const akMsg = $("#live-access-key-msg");
+  if (!akMsg) return;
+  akMsg.textContent = liveAccessKeyStatusHint();
+}
+
+function applyUiLang(lang) {
+  const l = lang === "ar" ? "ar" : "en";
+  try {
+    localStorage.setItem(LS_UI_LANG, l);
+  } catch {
+    /* ignore */
+  }
+  document.documentElement.setAttribute("lang", l === "ar" ? "ar" : "en");
+  document.documentElement.setAttribute("dir", l === "ar" ? "rtl" : "ltr");
+  syncI18nStaticLabels();
+  paintLiveAccessKeyMsg();
+}
+
+function studentExamKeyHeaders() {
+  try {
+    const s = loadSession();
+    if (!s || s.role !== "student") return {};
+    const k = localStorage.getItem(LS_EXAM_ACCESS_KEY);
+    if (!k || !String(k).trim()) return {};
+    return { "X-Exam-Access-Key": String(k).trim() };
+  } catch {
+    return {};
+  }
+}
 
 function resolveApiOrigin() {
   try {
@@ -206,11 +289,22 @@ function throwFromErrorBody(r, bodyText) {
 async function api(path, opts = {}) {
   const url = apiUrl(path);
   const { headers: hdr, ...rest } = opts;
-  const r = await fetch(url, {
-    ...rest,
-    cache: "no-store",
-    headers: { "Content-Type": "application/json", ...(hdr || {}) },
-  });
+  let r;
+  try {
+    r = await fetch(url, {
+      ...rest,
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", ...studentExamKeyHeaders(), ...(hdr || {}) },
+    });
+  } catch (e) {
+    const msg =
+      e instanceof TypeError
+        ? "Network error: could not reach the server. Check connection and Server URL, then try again."
+        : e?.message || String(e);
+    // eslint-disable-next-line no-console
+    console.warn("[api]", path, e);
+    throw new Error(msg);
+  }
   if (!r.ok) {
     const t = await r.text();
     throwFromErrorBody(r, t);
@@ -220,7 +314,12 @@ async function api(path, opts = {}) {
 
 async function apiDelete(path) {
   const url = apiUrl(path);
-  const r = await fetch(url, { method: "DELETE", cache: "no-store" });
+  let r;
+  try {
+    r = await fetch(url, { method: "DELETE", cache: "no-store", headers: { ...studentExamKeyHeaders() } });
+  } catch (e) {
+    throw new Error(e instanceof TypeError ? "Network error (delete)." : e?.message || String(e));
+  }
   if (!r.ok) {
     const t = await r.text();
     throwFromErrorBody(r, t);
@@ -472,7 +571,10 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       }
     };
     relayIceCandidate(studentId, roomId, pc);
-    const offer = await pc.createOffer();
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
     await pc.setLocalDescription(offer);
     socket.emit("webrtc:relay", { toUserId: studentId, roomId, type: "offer", sdp: offer.sdp });
     if (statusEl) statusEl.textContent = "Waiting for student…";
@@ -532,7 +634,16 @@ function renderLogin() {
     $("#userId").value = s.userId;
     $("#displayName").value = s.displayName || "";
   }
+  const ekInp = $("#exam-access-key");
+  if (ekInp) {
+    try {
+      ekInp.value = localStorage.getItem(LS_EXAM_ACCESS_KEY) || "";
+    } catch {
+      ekInp.value = "";
+    }
+  }
   syncUserIdLabel();
+  updateExamKeyRowVisibility();
 }
 
 function syncUserIdLabel() {
@@ -543,7 +654,16 @@ function syncUserIdLabel() {
   else lab.textContent = "User id (use admin)";
 }
 
-$("#role")?.addEventListener("change", syncUserIdLabel);
+function updateExamKeyRowVisibility() {
+  const role = $("#role")?.value;
+  const wrap = $("#exam-key-label-wrap");
+  if (wrap) wrap.classList.toggle("hidden", role !== "student");
+}
+
+$("#role")?.addEventListener("change", () => {
+  syncUserIdLabel();
+  updateExamKeyRowVisibility();
+});
 
 function setHeader(text) {
   $("#whoami").textContent = text;
@@ -860,6 +980,7 @@ function escapeAttr(s) {
 function paintLiveTab() {
   const ex = stateCache.examSession;
   $("#live-timing-hint").textContent = `Lobby opens at ${new Date(stateCache.lobbyOpensAtISO).toLocaleString()} (local). Start ${new Date(ex.examStartAt).toLocaleString()}, end ${new Date(ex.examEndAt).toLocaleString()}.`;
+  paintLiveAccessKeyMsg();
   const tbody = $("#live-rooms-body");
   tbody.innerHTML = "";
   (ex.rooms || []).forEach((r) => {
@@ -962,6 +1083,15 @@ async function enterApp() {
     alert("Please enter your id.");
     return;
   }
+  if (role === "student") {
+    const ek = ($("#exam-access-key") && $("#exam-access-key").value.trim()) || "";
+    try {
+      if (ek) localStorage.setItem(LS_EXAM_ACCESS_KEY, ek);
+      else localStorage.removeItem(LS_EXAM_ACCESS_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
   saveSession({ role, userId, displayName });
   $("#view-login").classList.add("hidden");
   $("#view-app").classList.remove("hidden");
@@ -1017,6 +1147,7 @@ async function enterApp() {
 
 function logout() {
   closeAdminRoomCommandCenter();
+  studentTabVisibilityCleanup?.();
   clearProctorWaitlistPoll();
   clearStudentEntryPollTimer();
   if (studentExamCountdown) {
@@ -1244,6 +1375,18 @@ function bindExamWizard() {
 }
 
 function bindLiveTab() {
+  $("#btn-live-access-key-save")?.addEventListener("click", async () => {
+    const inp = $("#live-exam-access-key");
+    const msg = $("#live-access-key-msg");
+    const raw = (inp && inp.value) || "";
+    try {
+      await api("/api/admin/exam/access-key", { method: "POST", body: JSON.stringify({ key: raw }) });
+      if (inp && !raw) inp.value = "";
+      await refreshState();
+    } catch (e) {
+      if (msg) msg.textContent = e.message || String(e);
+    }
+  });
   $("#btn-extend").onclick = async () => {
     const minutes = Number($("#live-extend").value);
     await api("/api/admin/exam/extend", { method: "POST", body: JSON.stringify({ minutes }) });
@@ -2010,6 +2153,7 @@ function bindStudent() {
     lounge?.classList.add("hidden");
     workspace?.classList.remove("hidden");
     $("#student-room-label").textContent = `${place.roomName} (${place.roomId}) — exam in progress`;
+    setupStudentTabVisibilityWatch(place.roomId, sid);
 
     let paperMeta;
     try {
@@ -2161,6 +2305,7 @@ function bindStudent() {
           if (next.completed) {
             stopIntegrity();
             socket?.emit("room:leave", { roomId: place.roomId, userId: sid, role: "student" });
+            studentTabVisibilityCleanup?.();
             studentWebRtcStop?.();
             studentWebRtcStop = null;
             try {
@@ -2189,6 +2334,16 @@ function bindStudent() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  let initialLang = "en";
+  try {
+    initialLang = localStorage.getItem(LS_UI_LANG) || "en";
+  } catch {
+    initialLang = "en";
+  }
+  applyUiLang(initialLang === "ar" ? "ar" : "en");
+  $("#btn-lang-en")?.addEventListener("click", () => applyUiLang("en"));
+  $("#btn-lang-ar")?.addEventListener("click", () => applyUiLang("ar"));
+
   bindConnectionPanel();
   probeBackendOnce();
   setInterval(() => probeBackendOnce(), 60000);
@@ -2198,18 +2353,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("#userId").value = "admin";
     $("#displayName").value = "Administration";
     syncUserIdLabel();
+    updateExamKeyRowVisibility();
   });
   const fillStudent = (id) => {
     $("#role").value = "student";
     $("#userId").value = id;
     $("#displayName").value = id;
     syncUserIdLabel();
+    updateExamKeyRowVisibility();
   };
   const fillTeacher = (id) => {
     $("#role").value = "proctor";
     $("#userId").value = id;
     $("#displayName").value = id;
     syncUserIdLabel();
+    updateExamKeyRowVisibility();
   };
   $("#btn-fill-student-1")?.addEventListener("click", () => fillStudent("Student-1"));
   $("#btn-fill-student-2")?.addEventListener("click", () => fillStudent("Student-2"));

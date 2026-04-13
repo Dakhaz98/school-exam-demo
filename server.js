@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-22";
+const SERVER_BUILD_ID = "exam-demo-build-23";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -38,6 +38,9 @@ const PLATFORM_SHIPPED = [
   { id: "results_report_api", label: "Admin results report: MCQ summary plus evidence file index" },
   { id: "a11y_basics", label: "Accessibility basics: skip link, tab roles, focus-visible" },
   { id: "headers", label: "Security headers: X-Content-Type-Options, build id on API responses" },
+  { id: "sqlite_persist", label: "SQLite WAL persistence for roster, exam session, answers, and audit/integrity tails" },
+  { id: "exam_access_key", label: "Optional X-Exam-Access-Key header required for all student exam APIs when configured" },
+  { id: "tab_switch_alert", label: "Tab visibility loss emits potential-cheating signal to proctor staff channel" },
 ];
 
 const PLATFORM_ROADMAP = [
@@ -395,7 +398,18 @@ const state = {
   studentEntryStatus: {},
   /** @type {Record<string, boolean>} roomId -> paper released to students */
   roomPaperReleased: {},
+  /** When non-empty, student APIs require header X-Exam-Access-Key to match (set via admin). */
+  examAccessKey: "",
 };
+
+const logger = require("./lib/logger");
+const sqliteStore = require("./lib/sqlite-store");
+try {
+  sqliteStore.hydrateState(state);
+} catch (e) {
+  logger.logError("Initial SQLite hydrate threw", e);
+}
+ensureRoomsBuilt();
 
 const MAX_AUDIT = 500;
 
@@ -405,15 +419,21 @@ const MAX_AUDIT = 500;
  * @param {{ actorRole?: string | null, actorId?: string | null }} [meta]
  */
 function appendAudit(action, detail = "", meta = {}) {
-  state.auditLog.push({
+  const entry = {
     id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     at: new Date().toISOString(),
     action,
     detail: String(detail || "").slice(0, 480),
     actorRole: meta.actorRole != null ? String(meta.actorRole) : null,
     actorId: meta.actorId != null ? String(meta.actorId) : null,
-  });
+  };
+  state.auditLog.push(entry);
   while (state.auditLog.length > MAX_AUDIT) state.auditLog.shift();
+  try {
+    sqliteStore.insertAuditRow(entry);
+  } catch (e) {
+    logger.logError("appendAudit sqlite", e);
+  }
 }
 
 function clearIssuedPapers() {
@@ -859,8 +879,13 @@ function canWebRtcRelay(fromUserId, fromRole, toUserId, roomId) {
 /**
  * @returns {{ ok: true, model: object, g: object } | { err: number, body: object }}
  */
-function gateHonestyModelForStudent(sid) {
-  const g = gateFor("student", sid);
+function readExamAccessKeyHeader(req) {
+  if (!req || !req.headers) return "";
+  return String(req.headers["x-exam-access-key"] || req.headers["X-Exam-Access-Key"] || "").trim();
+}
+
+function gateHonestyModelForStudent(sid, req) {
+  const g = gateFor("student", sid, req);
   if (!g.allowed) return { err: 403, body: { error: g.reason, gate: g } };
   if (!state.studentHonestyAck[sid]) {
     return {
@@ -888,8 +913,8 @@ function buildShuffledQuestionForStudent(sid, qid) {
 }
 
 /** Ensures question order exists for sid; preserves issued order if already present. */
-function initStudentPaperIfNeeded(sid) {
-  const chk = gateHonestyModelForStudent(sid);
+function initStudentPaperIfNeeded(sid, req) {
+  const chk = gateHonestyModelForStudent(sid, req);
   if (chk.err) return chk;
   const flow = studentProctorFlowGate(sid);
   if (flow) return flow;
@@ -921,43 +946,54 @@ function lobbyOpensAt() {
   return start - mins * 60 * 1000;
 }
 
-function gateFor(role, userId) {
+function gateFor(role, userId, req) {
   const now = Date.now();
   const ex = state.examSession;
   const end = new Date(ex.examEndAt).getTime();
   const open = lobbyOpensAt();
+  const base = { lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
 
   if (role === "admin") {
-    return { allowed: true, reason: "admin", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    return { allowed: true, reason: "admin", ...base };
   }
 
   if (now > end) {
-    return { allowed: false, reason: "exam_ended", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    return { allowed: false, reason: "exam_ended", ...base };
   }
 
   if (now < open) {
-    return { allowed: false, reason: "lobby_closed", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    return { allowed: false, reason: "lobby_closed", ...base };
   }
 
   if (role === "student") {
     const st = studentById(userId);
-    if (!st) return { allowed: false, reason: "unknown_student", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    if (!st) return { allowed: false, reason: "unknown_student", ...base };
     if (normGrade(st.grade) !== normGrade(ex.targetGrade)) {
-      return { allowed: false, reason: "wrong_grade", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+      return { allowed: false, reason: "wrong_grade", ...base };
     }
-    return { allowed: true, reason: "ok", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    const need = String(state.examAccessKey || "").trim();
+    if (need && readExamAccessKeyHeader(req) !== need) {
+      return {
+        allowed: false,
+        reason: "exam_access_key_required",
+        message: "Send HTTP header X-Exam-Access-Key with the key issued by administration.",
+        requiresExamAccessKey: true,
+        ...base,
+      };
+    }
+    return { allowed: true, reason: "ok", requiresExamAccessKey: !!need, ...base };
   }
 
   if (role === "proctor") {
     const t = teacherById(userId);
-    if (!t) return { allowed: false, reason: "unknown_staff", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    if (!t) return { allowed: false, reason: "unknown_staff", ...base };
     ensureRoomsBuilt();
     const assigned = state.examSession.rooms.some((r) => r.proctorStaffIds.includes(userId));
-    if (!assigned) return { allowed: false, reason: "not_assigned", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
-    return { allowed: true, reason: "ok", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+    if (!assigned) return { allowed: false, reason: "not_assigned", ...base };
+    return { allowed: true, reason: "ok", ...base };
   }
 
-  return { allowed: false, reason: "unknown_role", lobbyOpensAt: new Date(open).toISOString(), examStartAt: ex.examStartAt, examEndAt: ex.examEndAt };
+  return { allowed: false, reason: "unknown_role", ...base };
 }
 
 function distinctGradesFromStudents() {
@@ -1037,6 +1073,7 @@ function publicSnapshot() {
     lobbyOpensAtISO: new Date(lobbyOpensAt()).toISOString(),
     auditLogTail: state.auditLog.slice(-45),
     integrityPolicyVersion: INTEGRITY_POLICY.version,
+    requiresExamAccessKey: !!String(state.examAccessKey || "").trim(),
   };
 }
 
@@ -1101,6 +1138,15 @@ app.set("trust proxy", 1);
 app.use(cors({ origin: true, credentials: true }));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true } });
+
+function broadcastState() {
+  try {
+    sqliteStore.schedulePersistCore(state);
+  } catch (e) {
+    logger.logError("broadcastState persist schedule", e);
+  }
+  io.emit("state:update", publicSnapshot());
+}
 
 app.use(express.json({ limit: "2mb" }));
 app.use((_req, res, next) => {
@@ -1201,7 +1247,7 @@ function platformStatusPayload() {
     roadmap: PLATFORM_ROADMAP,
     hostingNotes: {
       renderFree:
-        "Free web services spin down after 15 minutes without inbound traffic (including WebSocket idle); the next request can take ~1 minute. Ephemeral disk — in-memory demo state is lost on restart or spin-down.",
+        "Free web services may sleep without traffic. Exam roster, session, answers, and access key are persisted to SQLite (WAL) under data/ on this instance when the filesystem is writable.",
       productionRecommendation:
         "Use a paid web service + managed PostgreSQL + object storage for papers; add SSO/LTI and a VPAT before formal procurement.",
     },
@@ -1215,7 +1261,7 @@ app.get("/api/platform/status", (_req, res) => {
 app.get("/api/gate", (req, res) => {
   const role = String(req.query.role || "");
   const userId = String(req.query.userId || "");
-  const g = gateFor(role, userId);
+  const g = gateFor(role, userId, req);
   res.json(g);
 });
 
@@ -1240,14 +1286,14 @@ app.get("/api/admin/item-analysis", (_req, res) => {
 app.post("/api/student/:studentId/acknowledge-honesty", (req, res) => {
   const sid = req.params.studentId;
   if (!studentById(sid)) return res.status(404).json({ ok: false, error: "Unknown student." });
-  const g = gateFor("student", sid);
+  const g = gateFor("student", sid, req);
   if (!g.allowed) return res.status(403).json({ ok: false, error: g.reason || "not_allowed", gate: g });
   if (req.body?.accepted !== true) {
     return res.status(400).json({ ok: false, error: 'Send JSON body { "accepted": true } after reading the rules.' });
   }
   state.studentHonestyAck[sid] = new Date().toISOString();
   appendAudit("student_honesty_ack", `policy ${INTEGRITY_POLICY.version}`, { actorRole: "student", actorId: sid });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, policyVersion: INTEGRITY_POLICY.version });
 });
 
@@ -1261,7 +1307,7 @@ app.post("/api/admin/upload/students", upload.single("file"), (req, res) => {
     resetStudentExamRuntimeFlags();
     syncExamTargetGradeFromStudents();
     appendAudit("upload_students", `Imported ${list.length} rows`, { actorRole: "admin", actorId: "admin" });
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
     res.json({ ok: true, imported: list.length, state: publicSnapshot() });
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || e) });
@@ -1275,7 +1321,7 @@ app.post("/api/admin/upload/teachers", upload.single("file"), (req, res) => {
     if (!list.length) return res.status(400).json({ ok: false, error: "No valid teacher rows found. Check column headers." });
     state.teachers = list;
     appendAudit("upload_teachers", `Imported ${list.length} rows`, { actorRole: "admin", actorId: "admin" });
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
     res.json({ ok: true, imported: list.length, state: publicSnapshot() });
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || e) });
@@ -1311,7 +1357,7 @@ function handleQuestionModelUpload(req, res) {
       `${questions.length} questions · ${id}${uploadedBy ? ` · staff ${uploadedBy}` : ""}`,
       { actorRole: uploadedBy ? "proctor" : "admin", actorId: uploadedBy || "admin" }
     );
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
     res.json({ ok: true, modelId: id, questionCount: questions.length, state: publicSnapshot() });
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || e) });
@@ -1333,7 +1379,7 @@ app.delete("/api/admin/question-models/:id", (req, res) => {
   }
   clearIssuedPapers();
   appendAudit("delete_question_model", id, { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1348,13 +1394,13 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
   if (wantAis) {
     const scenario = runSeedAisTrialScenario();
     appendAudit("seed_ais_trial", "Trial Student-1..3 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }
   if (wantTrio) {
     const scenario = runSeedTrioScenario();
     appendAudit("seed_trio_demo", "Three students + three teachers demo", { actorRole: "admin", actorId: "admin" });
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }
   const students = [];
@@ -1390,7 +1436,7 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
   resetStudentExamRuntimeFlags();
   resetExamAdmissionState();
   appendAudit("seed_demo_roster", "Bulk Grade 4 demo roster", { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1415,7 +1461,7 @@ app.post("/api/admin/exam/apply-layout", (req, res) => {
   clearIssuedPapers();
   resetExamAdmissionState();
   appendAudit("exam_apply_layout", `${ex.roomCount} rooms · grade ${ex.targetGrade}`, { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1437,7 +1483,7 @@ app.post("/api/admin/exam/schedule", (req, res) => {
   }
   clearIssuedPapers();
   appendAudit("exam_schedule", `model ${ex.selectedModelId || "none"} · draw ${ex.paperDrawCount ?? "all"}`, { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1452,7 +1498,7 @@ app.post("/api/admin/exam/rooms-meta", (req, res) => {
     if (typeof patch.proctorsRequired === "number" && patch.proctorsRequired >= 0) room.proctorsRequired = patch.proctorsRequired;
   }
   appendAudit("exam_rooms_meta", "Proctor counts updated", { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1464,7 +1510,7 @@ app.post("/api/admin/exam/assign-proctors", (req, res) => {
   if (mode === "random") {
     assignProctorsRandom(ex.rooms, pool);
     appendAudit("exam_assign_proctors", "mode random", { actorRole: "admin", actorId: "admin" });
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
     return res.json({ ok: true, state: publicSnapshot() });
   }
   const assignments = req.body?.assignments;
@@ -1475,7 +1521,7 @@ app.post("/api/admin/exam/assign-proctors", (req, res) => {
     room.proctorStaffIds = [...new Set(ids.map(String))].filter((id) => pool.some((t) => t.staffId === id));
   }
   appendAudit("exam_assign_proctors", "mode manual", { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1493,7 +1539,7 @@ app.post("/api/admin/exam/publish", (req, res) => {
   resetExamAdmissionState();
   ex.published = true;
   appendAudit("exam_publish", `grade ${ex.targetGrade} · model ${ex.selectedModelId}`, { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1506,7 +1552,7 @@ app.post("/api/admin/exam/extend", (req, res) => {
   const end = new Date(ex.examEndAt).getTime();
   ex.examEndAt = new Date(end + mins * 60000).toISOString();
   appendAudit("exam_extend", `+${mins} minutes`, { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
 
@@ -1519,13 +1565,30 @@ app.post("/api/admin/open-lobby-now", (_req, res) => {
     ex.examEndAt = new Date(new Date(ex.examStartAt).getTime() + 60 * 60000).toISOString();
   }
   appendAudit("open_lobby_now", "Testing shortcut applied", { actorRole: "admin", actorId: "admin" });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   const sid = state.students[0]?.studentId || "demo";
-  res.json({ ok: true, state: publicSnapshot(), gate: gateFor("student", sid) });
+  res.json({ ok: true, state: publicSnapshot(), gate: gateFor("student", sid, null) });
+});
+
+app.post("/api/admin/exam/access-key", (req, res) => {
+  if (req.body == null || typeof req.body.key !== "string") {
+    return res.status(400).json({ ok: false, error: 'Send JSON body { "key": "your-secret" } or { "key": "" } to clear.' });
+  }
+  state.examAccessKey = String(req.body.key).trim();
+  appendAudit("exam_access_key_set", state.examAccessKey ? "Exam access key configured" : "Exam access key cleared", {
+    actorRole: "admin",
+    actorId: "admin",
+  });
+  broadcastState();
+  res.json({ ok: true, configured: !!state.examAccessKey });
+});
+
+app.get("/api/admin/exam/access-key/status", (_req, res) => {
+  res.json({ ok: true, configured: !!String(state.examAccessKey || "").trim() });
 });
 
 app.get("/api/student/:studentId/room", (req, res) => {
-  const g = gateFor("student", req.params.studentId);
+  const g = gateFor("student", req.params.studentId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   const r = roomForStudent(req.params.studentId);
   if (!r) return res.status(404).json({ error: "Student not placed in a room for this exam configuration." });
@@ -1533,7 +1596,7 @@ app.get("/api/student/:studentId/room", (req, res) => {
 });
 
 app.get("/api/proctor/:staffId/room", (req, res) => {
-  const g = gateFor("proctor", req.params.staffId);
+  const g = gateFor("proctor", req.params.staffId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   const r = roomForStaff(req.params.staffId);
   if (!r) return res.status(404).json({ error: "Staff member is not assigned to a room." });
@@ -1543,7 +1606,7 @@ app.get("/api/proctor/:staffId/room", (req, res) => {
 app.post("/api/student/:studentId/request-entry", (req, res) => {
   const sid = req.params.studentId;
   if (!studentById(sid)) return res.status(404).json({ error: "Unknown student." });
-  const g = gateFor("student", sid);
+  const g = gateFor("student", sid, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   if (!state.examSession.published) return res.status(403).json({ error: "Exam is not published yet." });
   const room = roomForStudent(sid);
@@ -1552,14 +1615,14 @@ app.post("/api/student/:studentId/request-entry", (req, res) => {
   if (cur === "admitted") return res.json({ ok: true, status: "admitted", roomId: room.id });
   state.studentEntryStatus[sid] = "pending";
   appendAudit("student_entry_request", `room ${room.id}`, { actorRole: "student", actorId: sid });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, status: "pending", roomId: room.id });
 });
 
 app.get("/api/student/:studentId/entry-status", (req, res) => {
   const sid = req.params.studentId;
   if (!studentById(sid)) return res.status(404).json({ error: "Unknown student." });
-  const g = gateFor("student", sid);
+  const g = gateFor("student", sid, req);
   const room = roomForStudent(sid);
   if (!room) return res.status(404).json({ error: "No room for student." });
   const st = state.studentEntryStatus[sid] || "none";
@@ -1571,12 +1634,13 @@ app.get("/api/student/:studentId/entry-status", (req, res) => {
     admissionStatus: st,
     paperReleased: !!state.roomPaperReleased[room.id],
     examPublished: state.examSession.published,
+    requiresExamAccessKey: !!String(state.examAccessKey || "").trim(),
   });
 });
 
 app.get("/api/proctor/:staffId/room-waitlist", (req, res) => {
   const staffId = req.params.staffId;
-  const g = gateFor("proctor", staffId);
+  const g = gateFor("proctor", staffId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   const room = roomForStaff(staffId);
   if (!room) return res.status(404).json({ error: "Staff member is not assigned to a room." });
@@ -1596,7 +1660,7 @@ app.get("/api/proctor/:staffId/room-waitlist", (req, res) => {
 
 app.post("/api/proctor/:staffId/admit-student", (req, res) => {
   const staffId = req.params.staffId;
-  const g = gateFor("proctor", staffId);
+  const g = gateFor("proctor", staffId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   const room = roomForStaff(staffId);
   if (!room) return res.status(404).json({ error: "Staff member is not assigned to a room." });
@@ -1606,19 +1670,19 @@ app.post("/api/proctor/:staffId/admit-student", (req, res) => {
   }
   state.studentEntryStatus[studentId] = "admitted";
   appendAudit("proctor_admit_student", `${studentId} in ${room.id}`, { actorRole: "proctor", actorId: staffId });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, studentId, status: "admitted" });
 });
 
 app.post("/api/proctor/:staffId/release-paper", (req, res) => {
   const staffId = req.params.staffId;
-  const g = gateFor("proctor", staffId);
+  const g = gateFor("proctor", staffId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   const room = roomForStaff(staffId);
   if (!room) return res.status(404).json({ error: "Staff member is not assigned to a room." });
   state.roomPaperReleased[room.id] = true;
   appendAudit("proctor_release_paper", room.id, { actorRole: "proctor", actorId: staffId });
-  io.emit("state:update", publicSnapshot());
+  broadcastState();
   res.json({ ok: true, roomId: room.id, released: true });
 });
 
@@ -1686,7 +1750,7 @@ app.get("/api/admin/results-report", (_req, res) => {
 
 app.get("/api/student/:studentId/paper", (req, res) => {
   const sid = req.params.studentId;
-  const init = initStudentPaperIfNeeded(sid);
+  const init = initStudentPaperIfNeeded(sid, req);
   if (init.err) return res.status(init.err).json(init.body);
   const order = state.studentPaperSets[sid];
   const ex = state.examSession;
@@ -1703,7 +1767,7 @@ app.get("/api/student/:studentId/paper", (req, res) => {
 
 app.get("/api/student/:studentId/exam-current", (req, res) => {
   const sid = req.params.studentId;
-  const init = initStudentPaperIfNeeded(sid);
+  const init = initStudentPaperIfNeeded(sid, req);
   if (init.err) return res.status(init.err).json(init.body);
   const order = state.studentPaperSets[sid];
   let idx = state.studentPaperCursor[sid];
@@ -1735,9 +1799,9 @@ app.get("/api/student/:studentId/exam-current", (req, res) => {
 
 app.post("/api/student/:studentId/exam-submit", (req, res) => {
   const sid = req.params.studentId;
-  const init = initStudentPaperIfNeeded(sid);
+  const init = initStudentPaperIfNeeded(sid, req);
   if (init.err) return res.status(init.err).json(init.body);
-  const g = gateFor("student", sid);
+  const g = gateFor("student", sid, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason });
   const { questionId, choiceIndex } = req.body || {};
   if (!questionId || typeof choiceIndex !== "number") return res.status(400).json({ error: "Bad payload" });
@@ -1754,11 +1818,13 @@ app.post("/api/student/:studentId/exam-submit", (req, res) => {
   const ex = state.examSession;
   if (idx >= order.length) {
     finalizeExamAttemptEvidence(sid);
+    broadcastState();
     return res.json({ ok: true, completed: true, total: order.length, examEndAt: ex.examEndAt });
   }
   const nextQid = order[idx];
   const question = buildShuffledQuestionForStudent(sid, nextQid);
   if (!question) return res.status(500).json({ error: "Question model inconsistency." });
+  broadcastState();
   res.json({
     ok: true,
     completed: false,
@@ -1796,7 +1862,7 @@ app.get("/api/admin/room/:roomId/mcq-rows", (req, res) => {
 });
 
 app.post("/api/student/:studentId/answer", (req, res) => {
-  const g = gateFor("student", req.params.studentId);
+  const g = gateFor("student", req.params.studentId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason });
   const sid = req.params.studentId;
   const { questionId, choiceIndex } = req.body || {};
@@ -1844,6 +1910,8 @@ app.get("/api/proctor/:staffId/auto-grade-room", (req, res) => {
 app.get("/api/student/:studentId/mcq-score", (req, res) => {
   const sid = req.params.studentId;
   if (!studentById(sid)) return res.status(404).json({ ok: false, error: "Unknown student." });
+  const g = gateFor("student", sid, req);
+  if (!g.allowed) return res.status(403).json({ ok: false, error: g.reason, gate: g });
   const end = new Date(state.examSession.examEndAt).getTime();
   if (Date.now() < end) {
     return res.status(403).json({
@@ -1913,8 +1981,38 @@ io.on("connection", (socket) => {
     };
     state.integrityEvents.push(ev);
     if (state.integrityEvents.length > 500) state.integrityEvents.shift();
+    try {
+      sqliteStore.insertIntegrityRow(ev);
+    } catch (e) {
+      logger.logError("integrity:signal sqlite", e);
+    }
     io.to(`staff:${roomId}`).emit("integrity:event", ev);
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
+  });
+
+  socket.on("exam:visibility", (payload) => {
+    try {
+      const meta = socketMeta.get(socket.id);
+      const { roomId, studentId, hidden } = payload || {};
+      if (!roomId || !studentId || meta?.role !== "student" || meta.userId !== studentId) return;
+      if (!hidden) return;
+      const ev = {
+        id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        at: new Date().toISOString(),
+        roomId,
+        studentId,
+        type: "tab_switch",
+        detail: "Potential cheating: student left exam tab or switched away from the exam window",
+      };
+      state.integrityEvents.push(ev);
+      if (state.integrityEvents.length > 500) state.integrityEvents.shift();
+      sqliteStore.insertIntegrityRow(ev);
+      appendAudit("potential_cheating_tab", `student ${studentId} room ${roomId}`, { actorRole: "student", actorId: studentId });
+      io.to(`staff:${roomId}`).emit("integrity:event", ev);
+      broadcastState();
+    } catch (e) {
+      logger.logError("exam:visibility socket", e);
+    }
   });
 
   socket.on("webrtc:relay", (payload) => {
@@ -1953,7 +2051,7 @@ io.on("connection", (socket) => {
     state.incidents.push(inc);
     if (state.incidents.length > 200) state.incidents.shift();
     io.to("admins").emit("incident:new", inc);
-    io.emit("state:update", publicSnapshot());
+    broadcastState();
   });
 
   socket.on("disconnect", () => {
@@ -1980,8 +2078,10 @@ app.use((err, req, res, _next) => {
           ? err.status
           : 500;
     const message = String(err.message || "Request could not be completed.");
+    logger.logError(`API error ${req.method} ${req.path}`, err);
     return res.status(status).json({ ok: false, error: message });
   }
+  logger.logError(`Non-API error ${req.path}`, err);
   // eslint-disable-next-line no-console
   console.error(err);
   res.status(500).type("text").send("Server error");
