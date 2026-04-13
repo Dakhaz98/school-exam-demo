@@ -14,6 +14,24 @@ let gatePoll = null;
 let proctorRoomId = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let studentExamCountdown = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let proctorWaitlistTimer = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let studentEntryPollTimer = null;
+
+function clearProctorWaitlistPoll() {
+  if (proctorWaitlistTimer) {
+    clearInterval(proctorWaitlistTimer);
+    proctorWaitlistTimer = null;
+  }
+}
+
+function clearStudentEntryPollTimer() {
+  if (studentEntryPollTimer) {
+    clearInterval(studentEntryPollTimer);
+    studentEntryPollTimer = null;
+  }
+}
 
 const WEBRTC_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 
@@ -174,7 +192,10 @@ function throwFromErrorBody(r, bodyText) {
   const t = String(bodyText || "");
   try {
     const j = JSON.parse(t);
-    if (j && typeof j.error === "string" && j.error) throw new Error(j.error);
+    if (j && typeof j.error === "string" && j.error) {
+      if (j.message && typeof j.message === "string") throw new Error(`${j.message} (${j.error})`);
+      throw new Error(j.error);
+    }
     if (j && typeof j.message === "string" && j.message) throw new Error(j.message);
   } catch (e) {
     if (!(e instanceof SyntaxError)) throw e;
@@ -875,6 +896,8 @@ async function enterApp() {
 
 function logout() {
   closeAdminRoomCommandCenter();
+  clearProctorWaitlistPoll();
+  clearStudentEntryPollTimer();
   if (studentExamCountdown) {
     clearInterval(studentExamCountdown);
     studentExamCountdown = null;
@@ -1095,6 +1118,47 @@ function bindLiveTab() {
     await refreshState();
     await refreshGateBanner();
   };
+  $("#btn-live-results-report")?.addEventListener("click", async () => {
+    const pre = $("#live-results-pre");
+    const links = $("#live-evidence-links");
+    if (pre) pre.textContent = "Loading…";
+    if (links) links.innerHTML = "";
+    try {
+      const r = await api("/api/admin/results-report");
+      if (pre) {
+        pre.textContent = JSON.stringify(
+          {
+            ok: r.ok,
+            examEndAt: r.examEndAt,
+            selectedModelId: r.selectedModelId,
+            evidenceDir: r.evidenceDir,
+            evidenceFileCount: (r.evidenceFiles || []).length,
+            studentRows: r.studentRows,
+          },
+          null,
+          2
+        );
+      }
+      if (links) {
+        for (const f of r.evidenceFiles || []) {
+          const a = document.createElement("a");
+          a.href = apiUrl(`/api/admin/exam-evidence-file/${encodeURIComponent(f.file)}`);
+          a.download = f.file;
+          a.textContent = `${f.file} (${f.sizeBytes} bytes)`;
+          a.className = "template-dl";
+          links.appendChild(a);
+        }
+        if (!(r.evidenceFiles || []).length) {
+          const p = document.createElement("p");
+          p.className = "hint";
+          p.textContent = "No evidence files yet (students must submit answers on this server).";
+          links.appendChild(p);
+        }
+      }
+    } catch (e) {
+      if (pre) pre.textContent = e.message || String(e);
+    }
+  });
 }
 
 const LS_ADMIN_ROOM_LAUNCH = "examDemoAdminRoomLaunch";
@@ -1290,6 +1354,62 @@ async function maybeBootstrapAdminRoomTab() {
   return true;
 }
 
+async function refreshProctorWaitlist(staffId) {
+  const hint = $("#proctor-waitlist-hint");
+  const tbody = $("#proctor-waitlist-body");
+  const relBtn = $("#btn-proctor-release-paper");
+  if (!hint || !tbody) return;
+  try {
+    const d = await api(`/api/proctor/${encodeURIComponent(staffId)}/room-waitlist`);
+    if (d.paperReleased) {
+      hint.textContent = "The question paper is released. Students in this room can load questions.";
+      if (relBtn) relBtn.disabled = true;
+    } else {
+      hint.textContent =
+        "Confirm each student is present, tap Admit for that student, then release the paper when the room is ready. Questions stay hidden until you release.";
+      if (relBtn) relBtn.disabled = false;
+    }
+    tbody.innerHTML = "";
+    for (const row of d.students || []) {
+      const tr = document.createElement("tr");
+      const st = String(row.status || "none");
+      const admitted = st === "admitted";
+      const nameTd = document.createElement("td");
+      nameTd.innerHTML = `${escapeHtml(row.fullName)} <span class="hint">(${escapeHtml(row.studentId)})</span>`;
+      const statTd = document.createElement("td");
+      statTd.textContent = st;
+      const actTd = document.createElement("td");
+      if (!admitted) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "secondary";
+        b.textContent = "Admit";
+        b.addEventListener("click", async () => {
+          try {
+            await api(`/api/proctor/${encodeURIComponent(staffId)}/admit-student`, {
+              method: "POST",
+              body: JSON.stringify({ studentId: row.studentId }),
+            });
+            await refreshProctorWaitlist(staffId);
+          } catch (e) {
+            alert(e.message || String(e));
+          }
+        });
+        actTd.appendChild(b);
+      } else {
+        actTd.textContent = "—";
+      }
+      tr.appendChild(nameTd);
+      tr.appendChild(statTd);
+      tr.appendChild(actTd);
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    hint.textContent = e.message || String(e);
+    tbody.innerHTML = "";
+  }
+}
+
 async function refreshProctorMcqScores() {
   const s = loadSession();
   if (!s || s.role !== "proctor") return;
@@ -1324,6 +1444,8 @@ function bindProctor() {
 
   $("#btn-proctor-join").onclick = async () => {
     const s = loadSession();
+    clearProctorWaitlistPoll();
+    $("#proctor-admit-panel")?.classList.add("hidden");
     viewerRtcTeardown?.();
     viewerRtcTeardown = null;
     webRtcViewerHandler = null;
@@ -1352,8 +1474,25 @@ function bindProctor() {
     proctorRoomId = place.roomId;
     socket.emit("room:join", { roomId: place.roomId, userId: s.userId, role: "proctor" }, () => {});
     $("#proctor-status").textContent = `Joined ${place.roomName} (${place.roomId})`;
-    $("#proctor-gate-line").textContent = "You are in the live window. Students can also enter now.";
+    $("#proctor-gate-line").textContent =
+      "You are in the live window. Admit each student, then release the question paper so questions can appear.";
     $("#proctor-help-wrap").classList.remove("hidden");
+    $("#proctor-admit-panel")?.classList.remove("hidden");
+    void refreshProctorWaitlist(s.userId);
+    proctorWaitlistTimer = setInterval(() => void refreshProctorWaitlist(s.userId), 4000);
+    const wlRef = $("#btn-proctor-waitlist-refresh");
+    if (wlRef) wlRef.onclick = () => void refreshProctorWaitlist(s.userId);
+    $("#btn-proctor-release-paper").onclick = async () => {
+      try {
+        await api(`/api/proctor/${encodeURIComponent(s.userId)}/release-paper`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        await refreshProctorWaitlist(s.userId);
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    };
     const camSection = $("#proctor-cam-section");
     const camWall = $("#proctor-video-wall");
     if (camSection) camSection.classList.remove("hidden");
@@ -1561,6 +1700,7 @@ function bindStudent() {
   $("#btn-enter-exam").onclick = async () => {
     const s = loadSession();
     const sid = s.userId;
+    clearStudentEntryPollTimer();
     const hc = $("#honesty-check");
     if (!hc?.checked) {
       alert("Please tick the box to confirm you have read the rules.");
@@ -1594,7 +1734,7 @@ function bindStudent() {
       return;
     }
     $("#student-room-label").textContent = `${place.roomName} (${place.roomId})`;
-    $("#student-gate-line").textContent = "You may take the paper now.";
+    $("#student-gate-line").textContent = "Connected to the room. Sending entry request…";
     socket.emit("room:join", { roomId: place.roomId, userId: sid, role: "student" }, () => {});
 
     const v = $("#student-video");
@@ -1608,6 +1748,61 @@ function bindStudent() {
     if (v.srcObject) {
       studentWebRtcStop = startStudentWebRtcPublisher(place.roomId, sid, v.srcObject);
     }
+
+    const gateLine = $("#student-gate-line");
+    try {
+      await api(`/api/student/${encodeURIComponent(sid)}/request-entry`, { method: "POST", body: JSON.stringify({}) });
+    } catch (e) {
+      alert(e.message || String(e));
+      return;
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        let done = false;
+        const finish = (fn, arg) => {
+          if (done) return;
+          done = true;
+          clearStudentEntryPollTimer();
+          fn(arg);
+        };
+        const tick = async () => {
+          try {
+            const st = await api(`/api/student/${encodeURIComponent(sid)}/entry-status`);
+            if (!st.examPublished) {
+              if (gateLine) gateLine.textContent = "The exam is not published yet. Ask administration to publish.";
+              return;
+            }
+            if (!st.gateAllowed) {
+              finish(reject, new Error(String(st.gate?.reason || "You are not allowed into the exam session right now.")));
+              return;
+            }
+            if (st.admissionStatus !== "admitted") {
+              if (gateLine) {
+                gateLine.textContent =
+                  st.admissionStatus === "pending"
+                    ? "Waiting for the proctor to admit you to this room."
+                    : "You are not admitted yet. The proctor must admit you from the teacher desk.";
+              }
+              return;
+            }
+            if (!st.paperReleased) {
+              if (gateLine) gateLine.textContent = "You are admitted. Waiting for the proctor to release the question paper.";
+              return;
+            }
+            finish(resolve, undefined);
+          } catch (e) {
+            finish(reject, e instanceof Error ? e : new Error(String(e)));
+          }
+        };
+        void tick();
+        studentEntryPollTimer = setInterval(() => void tick(), 2000);
+      });
+    } catch (e) {
+      alert(e.message || String(e));
+      clearStudentEntryPollTimer();
+      return;
+    }
+    if (gateLine) gateLine.textContent = "The paper is released. Loading your questions…";
 
     let paperMeta;
     try {

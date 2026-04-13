@@ -4,6 +4,7 @@
  */
 
 const path = require("path");
+const fs = require("fs");
 const http = require("http");
 const express = require("express");
 const cors = require("cors");
@@ -13,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-18";
+const SERVER_BUILD_ID = "exam-demo-build-20";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -32,6 +33,9 @@ const PLATFORM_SHIPPED = [
   { id: "socket_realtime", label: "Socket.IO: roster signals, integrity flags, state refresh" },
   { id: "webrtc_mesh", label: "Demo WebRTC: proctor & admin can open live camera tiles per room (STUN; production needs TURN)" },
   { id: "sequential_mcq", label: "Sequential MCQ: one question at a time with submit before the next item unlocks" },
+  { id: "proctor_admit_release", label: "Proctor must admit each student and release the paper before questions load" },
+  { id: "exam_evidence_disk", label: "Append-only exam evidence files (JSONL per student under data/exam-evidence)" },
+  { id: "results_report_api", label: "Admin results report: MCQ summary plus evidence file index" },
   { id: "a11y_basics", label: "Accessibility basics: skip link, tab roles, focus-visible" },
   { id: "headers", label: "Security headers: X-Content-Type-Options, build id on API responses" },
 ];
@@ -389,6 +393,10 @@ const state = {
   integrityEvents: [],
   /** @type {{ id: string, at: string, roomId: string, staffId: string, message: string, note?: string }[]} */
   incidents: [],
+  /** @type {Record<string, string>} studentId -> none | pending | admitted */
+  studentEntryStatus: {},
+  /** @type {Record<string, boolean>} roomId -> paper released to students */
+  roomPaperReleased: {},
 };
 
 const MAX_AUDIT = 500;
@@ -611,6 +619,7 @@ function runSeedAisTrialScenario() {
     r.proctorStaffIds = [teacher.staffId];
   }
   ex.published = true;
+  resetExamAdmissionState();
   return {
     student: { role: "student", userId: student.studentId, displayName: student.fullName },
     teacher: { role: "proctor", userId: teacher.staffId, displayName: teacher.fullName },
@@ -682,6 +691,7 @@ function runSeedTrioScenario() {
     r.proctorStaffIds = teachers.map((t) => t.staffId);
   }
   ex.published = true;
+  resetExamAdmissionState();
   return {
     students: students.map((s) => ({ role: "student", userId: s.studentId, displayName: s.fullName })),
     teachers: teachers.map((t) => ({ role: "proctor", userId: t.staffId, displayName: t.fullName })),
@@ -719,6 +729,90 @@ function roomForStaff(staffId) {
 function roomEntityById(roomId) {
   ensureRoomsBuilt();
   return state.examSession.rooms.find((r) => r.id === roomId) || null;
+}
+
+const EVIDENCE_DIR = path.join(__dirname, "data", "exam-evidence");
+
+function ensureEvidenceDir() {
+  try {
+    fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+function safeEvidencePathForStudent(studentId) {
+  const safe = String(studentId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(EVIDENCE_DIR, `${safe}.jsonl`);
+}
+
+function writeExamEvidenceLine(studentId, payload) {
+  try {
+    ensureEvidenceDir();
+    const line = `${JSON.stringify({ ...payload, studentId, at: new Date().toISOString() })}\n`;
+    fs.appendFileSync(safeEvidencePathForStudent(studentId), line, "utf8");
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[exam-evidence]", e.message);
+  }
+}
+
+function finalizeExamAttemptEvidence(studentId) {
+  const order = state.studentPaperSets[studentId] || [];
+  const answers = { ...(state.answers[studentId] || {}) };
+  const modelId = state.examSession.selectedModelId;
+  const score = computeMcqScoreForStudent(studentId);
+  writeExamEvidenceLine(studentId, {
+    type: "attempt_summary",
+    modelId,
+    questionOrder: order,
+    answersSnapshot: answers,
+    scoreSummary: {
+      correctCount: score.correctCount,
+      questionsWithKey: score.questionsWithKey,
+      percent: score.percent,
+    },
+  });
+}
+
+/** Reset per-room paper lock and student admission (call after publish, layout, or seeded exams). */
+function resetExamAdmissionState() {
+  state.studentEntryStatus = {};
+  ensureRoomsBuilt();
+  state.roomPaperReleased = {};
+  for (const r of state.examSession.rooms) {
+    state.roomPaperReleased[r.id] = false;
+  }
+}
+
+/**
+ * @returns {null | { err: number, body: object }}
+ */
+function studentProctorFlowGate(studentId) {
+  const room = roomForStudent(studentId);
+  if (!room) return { err: 404, body: { error: "Student not placed in a room for this exam configuration." } };
+  const st = state.studentEntryStatus[studentId] || "none";
+  if (st !== "admitted") {
+    return {
+      err: 403,
+      body: {
+        error: "proctor_admission_required",
+        message: "The assigned proctor must admit you before the exam paper can load.",
+        roomId: room.id,
+      },
+    };
+  }
+  if (!state.roomPaperReleased[room.id]) {
+    return {
+      err: 403,
+      body: {
+        error: "paper_not_released",
+        message: "The proctor must release the question paper for this room before questions appear.",
+        roomId: room.id,
+      },
+    };
+  }
+  return null;
 }
 
 function canWebRtcRelay(fromUserId, fromRole, toUserId, roomId) {
@@ -771,6 +865,8 @@ function buildShuffledQuestionForStudent(sid, qid) {
 function initStudentPaperIfNeeded(sid) {
   const chk = gateHonestyModelForStudent(sid);
   if (chk.err) return chk;
+  const flow = studentProctorFlowGate(sid);
+  if (flow) return flow;
   const { model, g } = chk;
   const ex = state.examSession;
   if (state.studentPaperSets[sid]?.length) {
@@ -1266,6 +1362,7 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
   assignProctorsRandom(state.examSession.rooms, teachersForGrade(state.teachers, state.examSession.targetGrade));
   syncExamTargetGradeFromStudents();
   resetStudentExamRuntimeFlags();
+  resetExamAdmissionState();
   appendAudit("seed_demo_roster", "Bulk Grade 4 demo roster", { actorRole: "admin", actorId: "admin" });
   io.emit("state:update", publicSnapshot());
   res.json({ ok: true, state: publicSnapshot() });
@@ -1290,6 +1387,7 @@ app.post("/api/admin/exam/apply-layout", (req, res) => {
     else if (r.proctorsRequired == null) r.proctorsRequired = 1;
   }
   clearIssuedPapers();
+  resetExamAdmissionState();
   appendAudit("exam_apply_layout", `${ex.roomCount} rooms · grade ${ex.targetGrade}`, { actorRole: "admin", actorId: "admin" });
   io.emit("state:update", publicSnapshot());
   res.json({ ok: true, state: publicSnapshot() });
@@ -1366,6 +1464,7 @@ app.post("/api/admin/exam/publish", (req, res) => {
   const check = publishProctorValidationFails();
   if (!check.ok) return res.status(400).json({ ok: false, error: check.error, rooms: check.rooms });
   resetStudentExamRuntimeFlags();
+  resetExamAdmissionState();
   ex.published = true;
   appendAudit("exam_publish", `grade ${ex.targetGrade} · model ${ex.selectedModelId}`, { actorRole: "admin", actorId: "admin" });
   io.emit("state:update", publicSnapshot());
@@ -1413,6 +1512,150 @@ app.get("/api/proctor/:staffId/room", (req, res) => {
   const r = roomForStaff(req.params.staffId);
   if (!r) return res.status(404).json({ error: "Staff member is not assigned to a room." });
   res.json({ roomId: r.id, roomName: r.label, gate: g });
+});
+
+app.post("/api/student/:studentId/request-entry", (req, res) => {
+  const sid = req.params.studentId;
+  if (!studentById(sid)) return res.status(404).json({ error: "Unknown student." });
+  const g = gateFor("student", sid);
+  if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
+  if (!state.examSession.published) return res.status(403).json({ error: "Exam is not published yet." });
+  const room = roomForStudent(sid);
+  if (!room) return res.status(404).json({ error: "Student not placed in a room." });
+  const cur = state.studentEntryStatus[sid] || "none";
+  if (cur === "admitted") return res.json({ ok: true, status: "admitted", roomId: room.id });
+  state.studentEntryStatus[sid] = "pending";
+  appendAudit("student_entry_request", `room ${room.id}`, { actorRole: "student", actorId: sid });
+  io.emit("state:update", publicSnapshot());
+  res.json({ ok: true, status: "pending", roomId: room.id });
+});
+
+app.get("/api/student/:studentId/entry-status", (req, res) => {
+  const sid = req.params.studentId;
+  if (!studentById(sid)) return res.status(404).json({ error: "Unknown student." });
+  const g = gateFor("student", sid);
+  const room = roomForStudent(sid);
+  if (!room) return res.status(404).json({ error: "No room for student." });
+  const st = state.studentEntryStatus[sid] || "none";
+  res.json({
+    ok: true,
+    gate: g,
+    gateAllowed: g.allowed,
+    roomId: room.id,
+    admissionStatus: st,
+    paperReleased: !!state.roomPaperReleased[room.id],
+    examPublished: state.examSession.published,
+  });
+});
+
+app.get("/api/proctor/:staffId/room-waitlist", (req, res) => {
+  const staffId = req.params.staffId;
+  const g = gateFor("proctor", staffId);
+  if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
+  const room = roomForStaff(staffId);
+  if (!room) return res.status(404).json({ error: "Staff member is not assigned to a room." });
+  const students = room.studentIds.map((sid) => ({
+    studentId: sid,
+    fullName: studentById(sid)?.fullName || sid,
+    status: state.studentEntryStatus[sid] || "none",
+  }));
+  res.json({
+    ok: true,
+    roomId: room.id,
+    roomLabel: room.label,
+    paperReleased: !!state.roomPaperReleased[room.id],
+    students,
+  });
+});
+
+app.post("/api/proctor/:staffId/admit-student", (req, res) => {
+  const staffId = req.params.staffId;
+  const g = gateFor("proctor", staffId);
+  if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
+  const room = roomForStaff(staffId);
+  if (!room) return res.status(404).json({ error: "Staff member is not assigned to a room." });
+  const studentId = String(req.body?.studentId || "").trim();
+  if (!studentId || !room.studentIds.includes(studentId)) {
+    return res.status(400).json({ error: "studentId must be a student in this room." });
+  }
+  state.studentEntryStatus[studentId] = "admitted";
+  appendAudit("proctor_admit_student", `${studentId} in ${room.id}`, { actorRole: "proctor", actorId: staffId });
+  io.emit("state:update", publicSnapshot());
+  res.json({ ok: true, studentId, status: "admitted" });
+});
+
+app.post("/api/proctor/:staffId/release-paper", (req, res) => {
+  const staffId = req.params.staffId;
+  const g = gateFor("proctor", staffId);
+  if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
+  const room = roomForStaff(staffId);
+  if (!room) return res.status(404).json({ error: "Staff member is not assigned to a room." });
+  state.roomPaperReleased[room.id] = true;
+  appendAudit("proctor_release_paper", room.id, { actorRole: "proctor", actorId: staffId });
+  io.emit("state:update", publicSnapshot());
+  res.json({ ok: true, roomId: room.id, released: true });
+});
+
+app.get("/api/admin/exam-evidence-index", (_req, res) => {
+  try {
+    ensureEvidenceDir();
+    const names = fs.readdirSync(EVIDENCE_DIR).filter((n) => n.endsWith(".jsonl"));
+    const rows = names.map((name) => {
+      const p = path.join(EVIDENCE_DIR, name);
+      const st = fs.statSync(p);
+      return { file: name, sizeBytes: st.size, mtime: st.mtime.toISOString() };
+    });
+    res.json({ ok: true, dir: "data/exam-evidence", rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.get("/api/admin/exam-evidence-file/:name", (req, res) => {
+  const raw = String(req.params.name || "");
+  const base = path.basename(raw);
+  if (!base.endsWith(".jsonl") || base !== raw) {
+    return res.status(400).json({ ok: false, error: "Invalid file name." });
+  }
+  const evidenceRoot = path.resolve(EVIDENCE_DIR);
+  const full = path.resolve(EVIDENCE_DIR, base);
+  if (path.dirname(full) !== evidenceRoot) {
+    return res.status(400).json({ ok: false, error: "Invalid path." });
+  }
+  if (!fs.existsSync(full)) return res.status(404).json({ ok: false, error: "File not found." });
+  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${base}"`);
+  fs.createReadStream(full).pipe(res);
+});
+
+app.get("/api/admin/results-report", (_req, res) => {
+  const studentRows = state.students.map((s) => ({
+    studentId: s.studentId,
+    fullName: s.fullName,
+    ...computeMcqScoreForStudent(s.studentId),
+  }));
+  let evidenceFiles = [];
+  try {
+    ensureEvidenceDir();
+    evidenceFiles = fs
+      .readdirSync(EVIDENCE_DIR)
+      .filter((n) => n.endsWith(".jsonl"))
+      .map((name) => {
+        const p = path.join(EVIDENCE_DIR, name);
+        const st = fs.statSync(p);
+        return { file: name, sizeBytes: st.size, mtime: st.mtime.toISOString() };
+      });
+  } catch {
+    evidenceFiles = [];
+  }
+  res.json({
+    ok: true,
+    examEndAt: state.examSession.examEndAt,
+    selectedModelId: state.examSession.selectedModelId,
+    evidenceDir: "data/exam-evidence",
+    evidenceFiles,
+    studentRows,
+  });
 });
 
 app.get("/api/student/:studentId/paper", (req, res) => {
@@ -1479,10 +1722,12 @@ app.post("/api/student/:studentId/exam-submit", (req, res) => {
   if (order[idx] !== questionId) return res.status(400).json({ error: "Submit does not match the current question step." });
   if (!state.answers[sid]) state.answers[sid] = {};
   state.answers[sid][questionId] = choiceIndex;
+  writeExamEvidenceLine(sid, { type: "answer_submit", questionId, choiceIndex, stepIndex: idx });
   idx += 1;
   state.studentPaperCursor[sid] = idx;
   const ex = state.examSession;
   if (idx >= order.length) {
+    finalizeExamAttemptEvidence(sid);
     return res.json({ ok: true, completed: true, total: order.length, examEndAt: ex.examEndAt });
   }
   const nextQid = order[idx];

@@ -7,3 +7,6 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Exam evidence (append-only JSONL per student; do not commit real attempts)
+data/exam-evidence/

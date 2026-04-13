@@ -74,10 +74,10 @@
               <strong>Tab 1 – Administration:</strong> Load a demo scenario on <strong>Rosters &amp; Excel</strong>, then use <strong>Live control</strong> → <strong>Open command center</strong> on a room: a <strong>new tab</strong> opens with the full room dashboard (same tools as the teacher view). If the pop-up is blocked, the command center opens in the current tab instead.
             </li>
             <li>
-              <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. You will see a grid of student camera feeds (WebRTC demo), the room log, and integrity flags.
+              <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> so questions can load. You will see camera feeds, the room log, and integrity flags.
             </li>
             <li>
-              <strong>Tab 3 – Student:</strong> Quick fill trial student → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. One multiple-choice item at a time: <strong>Submit answer</strong> until the last item, then <strong>Finish exam</strong> to complete your attempt.
+              <strong>Tab 3 – Student:</strong> Quick fill trial student → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. The app waits until the teacher admits you and releases the paper; then questions appear one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
             </li>
           </ol>
         </details>
@@ -361,6 +361,15 @@
             </table>
           </div>
           <div class="panel">
+            <h2>Results report &amp; answer evidence</h2>
+            <p class="hint">
+              Loads automatic MCQ summaries for all students and lists JSONL evidence files (one per student: submitted answers and attempt summary). Use the links to download for audit.
+            </p>
+            <button type="button" class="secondary" id="btn-live-results-report">Load report &amp; evidence list</button>
+            <pre id="live-results-pre" class="log" style="max-height: 220px; overflow: auto; margin-top: 0.5rem"></pre>
+            <div id="live-evidence-links" class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem"></div>
+          </div>
+          <div class="panel">
             <h2>Automatic MCQ results (selected paper)</h2>
             <p class="hint" id="live-mcq-grade-hint"></p>
             <table>
@@ -444,6 +453,24 @@
               <button type="button" class="warn" id="btn-proctor-help">Request administration support</button>
               <p class="hint">Visible only after you join your room during the lobby window. Sends a notice to administration.</p>
             </div>
+            <div id="proctor-admit-panel" class="hidden panel" style="margin-top: 1rem">
+              <h3 style="margin-top: 0">Student admission &amp; paper release</h3>
+              <p class="hint" id="proctor-waitlist-hint"></p>
+              <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem">
+                <button type="button" class="secondary" id="btn-proctor-waitlist-refresh">Refresh roster status</button>
+                <button type="button" id="btn-proctor-release-paper">Release question paper for this room</button>
+              </div>
+              <table style="margin-top: 0.5rem">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="proctor-waitlist-body"></tbody>
+              </table>
+            </div>
             <div id="proctor-cam-section" class="hidden" style="margin-top: 1rem">
               <h3 style="margin-top: 0">Live student cameras</h3>
               <p class="hint">
@@ -502,7 +529,7 @@
           <div class="panel">
             <h2>Student desk</h2>
             <p class="hint" style="margin-bottom: 0.5rem">
-              Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. If the link is not open yet, wait for the lobby window or ask administration to use
+              Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. Your teacher must admit you and release the paper before any question appears. If the link is not open yet, wait for the lobby window or ask administration to use
               <strong>Open lobby now (testing)</strong> on the Live control tab.
             </p>
             <p id="student-gate-line" class="hint"></p>
@@ -519,7 +546,7 @@
                   <input type="checkbox" id="honesty-check" autocomplete="off" />
                   <span>I have read and agree to follow these rules for this attempt.</span>
                 </label>
-                <button type="button" id="btn-enter-exam" disabled aria-describedby="honesty-check">Begin exam (join room &amp; load paper)</button>
+                <button type="button" id="btn-enter-exam" disabled aria-describedby="honesty-check">Begin exam (join room &amp; wait for teacher)</button>
               </div>
               <p id="student-room-label" class="hint"></p>
               <div class="panel" style="margin-top: 0.75rem">
