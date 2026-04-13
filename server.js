@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-23";
+const SERVER_BUILD_ID = "exam-demo-build-24";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -28,7 +28,7 @@ const PLATFORM_SHIPPED = [
   { id: "student_desk", label: "Student desk: camera/mic consent, integrity policy acknowledgement, paper, timer" },
   { id: "mcq_auto", label: "Automatic MCQ scoring (per-student choice shuffle)" },
   { id: "item_analysis", label: "Item analysis (% correct per keyed question)" },
-  { id: "audit_memory", label: "Audit log (in-memory; resets when the process restarts)" },
+  { id: "audit_tail_sqlite", label: "Audit log tail persisted to SQLite alongside live state" },
   { id: "question_pool", label: "Optional random subset (questions per student) from the selected model" },
   { id: "socket_realtime", label: "Socket.IO: roster signals, integrity flags, state refresh" },
   { id: "webrtc_mesh", label: "Demo WebRTC: proctor & admin can open live camera tiles per room (STUN; production needs TURN)" },
@@ -41,12 +41,17 @@ const PLATFORM_SHIPPED = [
   { id: "sqlite_persist", label: "SQLite WAL persistence for roster, exam session, answers, and audit/integrity tails" },
   { id: "exam_access_key", label: "Optional X-Exam-Access-Key header required for all student exam APIs when configured" },
   { id: "tab_switch_alert", label: "Tab visibility loss emits potential-cheating signal to proctor staff channel" },
+  {
+    id: "seb_browser_exam_key",
+    label:
+      "Optional Safe Exam Browser: require student APIs to present X-SafeExamBrowser-RequestHash matching SHA256(requestURL + BrowserExamKey) (keys from SEB Config Tool)",
+  },
 ];
 
 const PLATFORM_ROADMAP = [
   { id: "sso", label: "SSO / SAML / OIDC & institutional MFA" },
   { id: "lti", label: "LTI 1.3 with your LMS (Canvas, Moodle, Blackboard, …)" },
-  { id: "lockdown", label: "Respondus / Safe Exam Browser style lockdown integration" },
+  { id: "lockdown", label: "Deep lockdown (Respondus-style) beyond SEB header checks" },
   { id: "db", label: "PostgreSQL (or other) durable state, file storage, backups" },
   { id: "video", label: "Certified live invigilation & recording pipeline" },
   { id: "essay", label: "Essay / file tasks with rubrics & second-marker workflow" },
@@ -400,10 +405,15 @@ const state = {
   roomPaperReleased: {},
   /** When non-empty, student APIs require header X-Exam-Access-Key to match (set via admin). */
   examAccessKey: "",
+  /** When true, student gate + student APIs require valid Safe Exam Browser Browser Exam Key header. */
+  sebRequireForStudents: false,
+  /** Browser Exam Key strings from SEB Config Tool (Exam tab); one per line / array entry; multiple SEB versions supported. */
+  sebAllowedBrowserExamKeys: [],
 };
 
 const logger = require("./lib/logger");
 const sqliteStore = require("./lib/sqlite-store");
+const seb = require("./lib/seb");
 try {
   sqliteStore.hydrateState(state);
 } catch (e) {
@@ -978,10 +988,28 @@ function gateFor(role, userId, req) {
         reason: "exam_access_key_required",
         message: "Send HTTP header X-Exam-Access-Key with the key issued by administration.",
         requiresExamAccessKey: true,
+        requiresSeb: !!state.sebRequireForStudents,
         ...base,
       };
     }
-    return { allowed: true, reason: "ok", requiresExamAccessKey: !!need, ...base };
+    const sebCheck = seb.validateStudentSeb(req, state);
+    if (!sebCheck.ok) {
+      return {
+        allowed: false,
+        reason: sebCheck.reason,
+        message: sebCheck.message,
+        requiresExamAccessKey: !!need,
+        requiresSeb: true,
+        ...base,
+      };
+    }
+    return {
+      allowed: true,
+      reason: "ok",
+      requiresExamAccessKey: !!need,
+      requiresSeb: !!state.sebRequireForStudents,
+      ...base,
+    };
   }
 
   if (role === "proctor") {
@@ -1074,6 +1102,8 @@ function publicSnapshot() {
     auditLogTail: state.auditLog.slice(-45),
     integrityPolicyVersion: INTEGRITY_POLICY.version,
     requiresExamAccessKey: !!String(state.examAccessKey || "").trim(),
+    sebRequireForStudents: !!state.sebRequireForStudents,
+    sebBrowserExamKeyLineCount: (state.sebAllowedBrowserExamKeys || []).filter((k) => String(k).trim()).length,
   };
 }
 
@@ -1587,6 +1617,51 @@ app.get("/api/admin/exam/access-key/status", (_req, res) => {
   res.json({ ok: true, configured: !!String(state.examAccessKey || "").trim() });
 });
 
+app.post("/api/admin/exam/seb-settings", (req, res) => {
+  if (req.body == null || typeof req.body.requireForStudents !== "boolean") {
+    return res.status(400).json({
+      ok: false,
+      error: 'Send JSON body { "requireForStudents": true|false, "allowedBrowserExamKeysText": "key1\\nkey2" } (text may be empty).',
+    });
+  }
+  state.sebRequireForStudents = !!req.body.requireForStudents;
+  const raw = typeof req.body.allowedBrowserExamKeysText === "string" ? req.body.allowedBrowserExamKeysText : "";
+  state.sebAllowedBrowserExamKeys = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  appendAudit(
+    "seb_settings",
+    state.sebRequireForStudents
+      ? `SEB required for students; ${state.sebAllowedBrowserExamKeys.length} Browser Exam Key line(s)`
+      : "SEB not required for students",
+    { actorRole: "admin", actorId: "admin" }
+  );
+  broadcastState();
+  res.json({
+    ok: true,
+    requireForStudents: state.sebRequireForStudents,
+    keyLineCount: state.sebAllowedBrowserExamKeys.length,
+  });
+});
+
+app.get("/api/admin/exam/seb-settings/status", (_req, res) => {
+  res.json({
+    ok: true,
+    requireForStudents: !!state.sebRequireForStudents,
+    keyLineCount: (state.sebAllowedBrowserExamKeys || []).filter((k) => String(k).trim()).length,
+  });
+});
+
+/** Full SEB text for Live control (demo has no separate admin auth). */
+app.get("/api/admin/exam/seb-settings", (_req, res) => {
+  res.json({
+    ok: true,
+    requireForStudents: !!state.sebRequireForStudents,
+    keysText: (state.sebAllowedBrowserExamKeys || []).join("\n"),
+  });
+});
+
 app.get("/api/student/:studentId/room", (req, res) => {
   const g = gateFor("student", req.params.studentId, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
@@ -1635,6 +1710,7 @@ app.get("/api/student/:studentId/entry-status", (req, res) => {
     paperReleased: !!state.roomPaperReleased[room.id],
     examPublished: state.examSession.published,
     requiresExamAccessKey: !!String(state.examAccessKey || "").trim(),
+    requiresSeb: !!state.sebRequireForStudents,
   });
 });
 

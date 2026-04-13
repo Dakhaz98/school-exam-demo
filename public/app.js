@@ -72,52 +72,19 @@ let lastCameraViewCtx = null;
 
 const LS_API_ORIGIN = "examDemoApiOrigin";
 const LS_EXAM_ACCESS_KEY = "examDemoAccessKey";
-const LS_UI_LANG = "examDemoUiLang";
-
-function isRtlUi() {
-  return document.documentElement.getAttribute("dir") === "rtl";
-}
-
-function syncI18nStaticLabels() {
-  document.querySelectorAll("[data-i18n-en][data-i18n-ar]").forEach((el) => {
-    const en = el.getAttribute("data-i18n-en") || "";
-    const ar = el.getAttribute("data-i18n-ar") || en;
-    el.textContent = isRtlUi() ? ar : en;
-  });
-  document.querySelectorAll("[data-i18n-placeholder-en]").forEach((el) => {
-    const en = el.getAttribute("data-i18n-placeholder-en") || "";
-    const ar = el.getAttribute("data-i18n-placeholder-ar") || en;
-    el.setAttribute("placeholder", isRtlUi() ? ar : en);
-  });
-}
 
 function liveAccessKeyStatusHint() {
   if (!stateCache || typeof stateCache.requiresExamAccessKey !== "boolean") return "";
   if (stateCache.requiresExamAccessKey) {
-    return isRtlUi()
-      ? "مفعّل على الخادم — يجب أن يطابق الطلاب المفتاح نفسه في شاشة الدخول."
-      : "Enabled on the server — students must enter the same key on the login screen.";
+    return "Enabled on the server — students must enter the same key on the login screen.";
   }
-  return isRtlUi() ? "غير مفعّل حاليًا — مفتاح الوصول اختياري." : "Not enabled right now — exam access key is optional.";
+  return "Not enabled right now — exam access key is optional.";
 }
 
 function paintLiveAccessKeyMsg() {
   const akMsg = $("#live-access-key-msg");
   if (!akMsg) return;
   akMsg.textContent = liveAccessKeyStatusHint();
-}
-
-function applyUiLang(lang) {
-  const l = lang === "ar" ? "ar" : "en";
-  try {
-    localStorage.setItem(LS_UI_LANG, l);
-  } catch {
-    /* ignore */
-  }
-  document.documentElement.setAttribute("lang", l === "ar" ? "ar" : "en");
-  document.documentElement.setAttribute("dir", l === "ar" ? "rtl" : "ltr");
-  syncI18nStaticLabels();
-  paintLiveAccessKeyMsg();
 }
 
 function studentExamKeyHeaders() {
@@ -726,8 +693,17 @@ async function refreshGateBanner() {
         ht.innerHTML = `<span class="pill bad">Wrong grade</span> This session is not configured for your grade.`;
       } else if (g.reason === "not_assigned") {
         ht.innerHTML = `<span class="pill bad">Not assigned</span> You are not assigned to a room for this exam yet.`;
+      } else if (
+        g.reason === "seb_required" ||
+        g.reason === "seb_not_configured" ||
+        g.reason === "seb_browser_exam_key_mismatch" ||
+        g.reason === "seb_url_unknown"
+      ) {
+        ht.innerHTML = `<span class="pill bad">Safe Exam Browser</span> ${escapeHtml(g.message || "This session must be opened in Safe Exam Browser with keys configured by administration.")}`;
+      } else if (g.reason === "exam_access_key_required") {
+        ht.innerHTML = `<span class="pill bad">Exam key</span> ${escapeHtml(g.message || "Enter the exam access key on the login screen.")}`;
       } else {
-        ht.textContent = "You cannot enter yet.";
+        ht.textContent = g.message || "You cannot enter yet.";
       }
     } else {
       ht.innerHTML = `<span class="pill ok">Lobby open</span> You may join your room. Exam ends at <strong>${new Date(g.examEndAt).toLocaleString()}</strong> (local time).`;
@@ -1073,6 +1049,27 @@ function paintLiveTab() {
       }
     })();
   }
+
+  const sebMsg = $("#live-seb-msg");
+  const sebCb = $("#live-seb-require");
+  const sebTa = $("#live-seb-keys");
+  if (sebMsg && stateCache) {
+    const n = Number(stateCache.sebBrowserExamKeyLineCount) || 0;
+    sebMsg.textContent = stateCache.sebRequireForStudents
+      ? `Safe Exam Browser is required for students. ${n} Browser Exam Key line(s) on server.`
+      : `Safe Exam Browser is not required. ${n} Browser Exam Key line(s) stored (inactive until enabled).`;
+  }
+  if (sebCb && sebTa) {
+    void (async () => {
+      try {
+        const s = await api("/api/admin/exam/seb-settings");
+        sebCb.checked = !!s.requireForStudents;
+        sebTa.value = s.keysText || "";
+      } catch {
+        /* not an admin session or network */
+      }
+    })();
+  }
 }
 
 async function enterApp() {
@@ -1385,6 +1382,20 @@ function bindLiveTab() {
       await refreshState();
     } catch (e) {
       if (msg) msg.textContent = e.message || String(e);
+    }
+  });
+  $("#btn-live-seb-save")?.addEventListener("click", async () => {
+    const sebMsg = $("#live-seb-msg");
+    const requireForStudents = !!$("#live-seb-require")?.checked;
+    const keysText = ($("#live-seb-keys") && $("#live-seb-keys").value) || "";
+    try {
+      await api("/api/admin/exam/seb-settings", {
+        method: "POST",
+        body: JSON.stringify({ requireForStudents, allowedBrowserExamKeysText: keysText }),
+      });
+      await refreshState();
+    } catch (e) {
+      if (sebMsg) sebMsg.textContent = e.message || String(e);
     }
   });
   $("#btn-extend").onclick = async () => {
@@ -2050,7 +2061,7 @@ function bindStudent() {
     workspace?.classList.add("hidden");
     if (loungeStatus) {
       loungeStatus.innerHTML =
-        "<strong>Status:</strong> Please wait — you are being transferred to the exam room. / <strong>الحالة:</strong> يرجى الانتظار — جاري تحويلك إلى غرفة الامتحان.";
+        "<strong>Status:</strong> Please wait — you are being transferred to the exam room and connected to your proctor.";
     }
 
     let place;
@@ -2063,7 +2074,7 @@ function bindStudent() {
       return;
     }
     if (loungeStatus) {
-      loungeStatus.innerHTML = `${escapeHtml(place.roomName)} (${escapeHtml(place.roomId)}) — <strong>connected</strong>. Sending your entry request to the proctor…<br/><span class="hint" dir="rtl">تم الاتصال بالغرفة وجاري إرسال طلب الدخول إلى المراقب.</span>`;
+      loungeStatus.innerHTML = `${escapeHtml(place.roomName)} (${escapeHtml(place.roomId)}) — <strong>connected</strong>. Sending your entry request to the proctor…`;
     }
     socket.emit("room:join", { roomId: place.roomId, userId: sid, role: "student" }, () => {});
 
@@ -2089,7 +2100,7 @@ function bindStudent() {
     }
     if (loungeStatus) {
       loungeStatus.innerHTML +=
-        "<br/><span class=\"hint\">Entry request sent. Wait for <strong>Admit</strong>, then the teacher must click <strong>Release question paper</strong> (both steps are required).</span><br/><span class=\"hint\" dir=\"rtl\">تم إرسال الطلب. انتظر قبول المعلم ثم يجب أن يضغط <strong>إطلاق ورقة الأسئلة</strong> — الخطوتان مطلوبتان.</span>";
+        '<br/><span class="hint">Entry request sent. Wait for <strong>Admit</strong>, then the teacher must click <strong>Release question paper</strong> (both steps are required).</span>';
     }
     try {
       await new Promise((resolve, reject) => {
@@ -2109,8 +2120,7 @@ function bindStudent() {
             const st = await api(`/api/student/${encodeURIComponent(sid)}/entry-status`);
             if (!st.examPublished) {
               if (loungeStatus) {
-                loungeStatus.innerHTML =
-                  "The exam is not published yet. Ask administration to publish.<br/><span dir=\"rtl\">لم يُنشر الامتحان بعد؛ راجع الإدارة.</span>";
+                loungeStatus.innerHTML = "The exam is not published yet. Ask administration to publish.";
               }
               return;
             }
@@ -2122,15 +2132,15 @@ function bindStudent() {
               if (loungeStatus) {
                 loungeStatus.innerHTML =
                   st.admissionStatus === "pending"
-                    ? "<strong>Waiting for proctor to admit you.</strong> Your request is in the teacher’s list.<br/><span dir=\"rtl\"><strong>في انتظار قبول المراقب.</strong> طلبك لدى المعلم.</span>"
-                    : "<strong>Not admitted yet.</strong> The proctor must tap <strong>Admit</strong> for your student id on the teacher desk.<br/><span dir=\"rtl\"><strong>لم يتم القبول بعد.</strong> يجب أن يضغط المعلم <strong>Admit</strong> لرقمك.</span>";
+                    ? "<strong>Waiting for proctor to admit you.</strong> Your request is in the teacher’s list."
+                    : "<strong>Not admitted yet.</strong> The proctor must tap <strong>Admit</strong> for your student id on the teacher desk.";
               }
               return;
             }
             if (!st.paperReleased) {
               if (loungeStatus) {
                 loungeStatus.innerHTML =
-                  "<strong>You are admitted.</strong> The question paper is still locked. The proctor must click <strong>Release question paper for this room</strong> (without this, questions will not appear).<br/><span dir=\"rtl\"><strong>تم قبولك.</strong> الورقة مقفلة؛ على المعلم الضغط على <strong>Release question paper</strong> وإلا لن تظهر الأسئلة.</span>";
+                  "<strong>You are admitted.</strong> The question paper is still locked. The proctor must click <strong>Release question paper for this room</strong> (without this, questions will not appear).";
               }
               return;
             }
@@ -2334,16 +2344,6 @@ function bindStudent() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  let initialLang = "en";
-  try {
-    initialLang = localStorage.getItem(LS_UI_LANG) || "en";
-  } catch {
-    initialLang = "en";
-  }
-  applyUiLang(initialLang === "ar" ? "ar" : "en");
-  $("#btn-lang-en")?.addEventListener("click", () => applyUiLang("en"));
-  $("#btn-lang-ar")?.addEventListener("click", () => applyUiLang("ar"));
-
   bindConnectionPanel();
   probeBackendOnce();
   setInterval(() => probeBackendOnce(), 60000);

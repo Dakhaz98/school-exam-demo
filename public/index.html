@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>School Exam Platform (trial)</title>
     <link rel="stylesheet" href="/styles.css" />
-    <link rel="stylesheet" href="/rtl.css" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -37,11 +36,6 @@
         </div>
       </details>
       <div class="row" style="align-items: center; gap: 0.5rem">
-        <div class="row" style="align-items: center; gap: 0.25rem" aria-label="Interface language">
-          <span class="hint" style="font-size: 0.72rem">UI</span>
-          <button type="button" class="secondary ghost" id="btn-lang-en" title="English">EN</button>
-          <button type="button" class="secondary ghost" id="btn-lang-ar" title="العربية">عربي</button>
-        </div>
         <span id="whoami" class="hint"></span>
         <button type="button" class="secondary hidden" id="btn-logout">Log out</button>
       </div>
@@ -108,19 +102,15 @@
             <input id="displayName" type="text" autocomplete="name" />
           </label>
           <label id="exam-key-label-wrap" class="hidden" style="flex: 1; min-width: 12rem">
-            <span data-i18n-en="Exam access key (if your school enabled it)" data-i18n-ar="مفتاح الوصول للامتحان (إن فعّلته المدرسة)"
-              >Exam access key (if your school enabled it)</span>
+            <span>Exam access key (if your school enabled it)</span>
             <input
               id="exam-access-key"
               type="password"
               autocomplete="off"
               spellcheck="false"
-              data-i18n-placeholder-en="Same key as in Live control"
-              data-i18n-placeholder-ar="نفس المفتاح من لوحة التحكم المباشر"
               placeholder="Same key as in Live control"
             />
-            <small class="hint" data-i18n-en="Stored only in this browser. Required for student actions when the server has a key set." data-i18n-ar="يُخزَّن في هذا المتصفح فقط. مطلوب لإجراءات الطالب عندما يكون للخادم مفتاح."
-              >Stored only in this browser. Required for student actions when the server has a key set.</small>
+            <small class="hint">Stored only in this browser. Required for student actions when the server has a key set.</small>
           </label>
           <button type="button" id="btn-login" aria-describedby="user-id-label">Continue</button>
         </div>
@@ -368,21 +358,41 @@
             <p class="hint" id="live-timing-hint"></p>
           </div>
           <div class="panel">
-            <h2 data-i18n-en="Exam access key" data-i18n-ar="مفتاح الوصول للامتحان">Exam access key</h2>
+            <h2>Exam access key</h2>
             <p class="hint" id="live-access-key-msg"></p>
             <div class="row" style="align-items: flex-end">
               <label style="flex: 1; min-width: 12rem">
-                <span data-i18n-en="Set or change key (leave blank to clear)" data-i18n-ar="تعيين أو تغيير المفتاح (اتركه فارغًا لإلغائه)"
-                  >Set or change key (leave blank to clear)</span>
+                <span>Set or change key (leave blank to clear)</span>
                 <input id="live-exam-access-key" type="text" autocomplete="off" spellcheck="false" />
               </label>
-              <button type="button" class="secondary" id="btn-live-access-key-save" data-i18n-en="Save key" data-i18n-ar="حفظ المفتاح">Save key</button>
+              <button type="button" class="secondary" id="btn-live-access-key-save">Save key</button>
             </div>
-            <p
-              class="hint"
-              data-i18n-en="When a key is set, student browsers must enter the same value on the login screen before Continue."
-              data-i18n-ar="عند تعيين مفتاح، يجب على الطلاب إدخال القيمة نفسها في شاشة تسجيل الدخول قبل المتابعة."
-              >When a key is set, student browsers must enter the same value on the login screen before Continue.</p>
+            <p class="hint">
+              When a key is set, student browsers must enter the same value on the login screen before Continue.
+            </p>
+          </div>
+          <div class="panel">
+            <h2>Safe Exam Browser (SEB)</h2>
+            <p class="hint" id="live-seb-msg"></p>
+            <label class="honesty-row" style="margin-bottom: 0.65rem">
+              <input type="checkbox" id="live-seb-require" autocomplete="off" />
+              <span>Require Safe Exam Browser for all <strong>student</strong> exam APIs (gate, room, paper, submit, …)</span>
+            </label>
+            <label>
+              Browser Exam Keys (one per line)
+              <textarea
+                id="live-seb-keys"
+                rows="4"
+                spellcheck="false"
+                placeholder="Paste keys from SEB Config Tool → Exam tab (add one line per SEB platform/version you support)"
+                style="width: 100%; min-height: 5rem; resize: vertical; font-family: inherit"
+              ></textarea>
+            </label>
+            <p class="hint" style="margin-top: 0.5rem">
+              The server checks <code>X-SafeExamBrowser-RequestHash</code> against <code>SHA256(fullRequestUrl + key)</code> for each line (same rule as Moodle’s SEB quiz access). The URL must match
+              what students type in the address bar (scheme, host, port, path). Behind a proxy, configure <code>X-Forwarded-Host</code> and <code>X-Forwarded-Proto</code>.
+            </p>
+            <button type="button" class="secondary" id="btn-live-seb-save">Save SEB settings</button>
           </div>
           <div class="panel">
             <h2>Rooms</h2>
@@ -450,8 +460,7 @@
           <div class="panel">
             <h2>Activity log (administration, trial)</h2>
             <p class="hint">
-              <strong>What this is:</strong> a short list of recent actions (publish exam, admit student, seed data, …). In this demo it lives <strong>in server memory only</strong> and is not a legal archive.
-              <span dir="rtl" style="display: block; margin-top: 0.35rem">سجل تجريبي للأحداث الأخيرة في الذاكرة فقط — ليس أرشيفاً رسمياً.</span>
+              <strong>What this is:</strong> a short list of recent actions (publish exam, admit student, seed data, …). Recent entries are also written to SQLite; the on-screen list is still a short tail, not a legal archive.
             </p>
             <div id="live-audit-log" class="log" style="max-height: 220px"></div>
           </div>
@@ -464,7 +473,6 @@
               <h2>Integrity alerts (trial demo)</h2>
               <p class="hint" style="margin-top: 0">
                 Simple motion/audio heuristics from the browser (not certified proctoring). For trials only.
-                <span dir="rtl" style="display: block; margin-top: 0.35rem">تنبيهات تجريبية من الكاميرا/الصوت — ليست مراقبة معتمدة.</span>
               </p>
               <div id="live-integrity" class="log"></div>
             </div>
@@ -609,8 +617,7 @@
               <div id="student-wait-lounge" class="hidden panel student-wait-lounge" style="margin-bottom: 0.75rem">
                 <h3 style="margin-top: 0" id="student-lounge-title">Transferring you to the exam room</h3>
                 <p id="student-lounge-bilingual" class="hint student-lounge-lead">
-                  <strong>English:</strong> Please wait — you are being connected to the exam room. Your proctor will admit you, then release the question paper.<br />
-                  <strong>العربية:</strong> يرجى الانتظار — جاري تحويلك إلى غرفة الامتحان والاتصال بالمراقب؛ سيقوم المعلم بقبولك ثم بإطلاق ورقة الأسئلة.
+                  Please wait — you are being connected to the exam room. Your proctor will admit you, then release the question paper.
                 </p>
                 <p id="student-lounge-status" class="hint" style="margin-top: 0.65rem"></p>
                 <div class="exam-wait-spinner" aria-hidden="true"></div>
@@ -642,12 +649,9 @@
                 <p>
                   Your answers will be submitted, your camera and microphone will stop for this session, and you will leave the exam room in the app.
                 </p>
-                <p class="hint" dir="rtl" style="margin-top: 0.5rem">
-                  سيتم إرسال إجاباتك، وإيقاف الكاميرا والميكروفون، ومغادرة غرفة الامتحان داخل التطبيق.
-                </p>
                 <div class="row" style="margin-top: 1rem; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap">
-                  <button type="button" class="secondary" id="btn-student-finish-cancel">Cancel / إلغاء</button>
-                  <button type="button" class="warn" id="btn-student-finish-confirm">Yes, finish exam / نعم، إنهاء</button>
+                  <button type="button" class="secondary" id="btn-student-finish-cancel">Cancel</button>
+                  <button type="button" class="warn" id="btn-student-finish-confirm">Yes, finish exam</button>
                 </div>
               </div>
             </div>
