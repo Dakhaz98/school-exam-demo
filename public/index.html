@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>School Exam Platform (trial)</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="app-header">
+      <div class="brand">
+        <strong>School Exam Platform</strong>
+        <span>Clear scheduling, rosters from Excel, calm exam rooms</span>
+      </div>
+      <details class="backend-conn" id="conn-details">
+        <summary>Server URL</summary>
+        <div class="backend-conn-body">
+          <p class="hint">
+            Use this only when this browser tab is <strong>not</strong> opened from the same address as the running app (for example a preview on another port). Paste the platform URL, click
+            <strong>Test &amp; save</strong>, and the page will refresh once.
+          </p>
+          <div class="row" style="flex-wrap: wrap; gap: 0.5rem; align-items: center">
+            <input
+              type="text"
+              id="conn-api-url"
+              class="conn-api-input"
+              placeholder="http://localhost:3780"
+              autocomplete="url"
+              spellcheck="false"
+            />
+            <button type="button" id="conn-test-save">Test &amp; save</button>
+            <button type="button" class="secondary" id="conn-reset">Use this tab only</button>
+          </div>
+          <p class="hint" id="conn-msg"></p>
+        </div>
+      </details>
+      <div class="row" style="align-items: center">
+        <span id="whoami" class="hint"></span>
+        <button type="button" class="secondary hidden" id="btn-logout">Log out</button>
+      </div>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <div id="hero-banner" class="hero-strip hidden">
+        <p id="hero-text"></p>
+      </div>
+
+      <section id="view-login" class="panel">
+        <h2>Welcome</h2>
+        <p class="hint">
+          Administration uses <strong>admin</strong> as the user id. Teachers use their <strong>Staff ID</strong> from the roster.
+          Students use their <strong>Student ID</strong>. The exam lobby opens for a window before the scheduled start until the end time.
+        </p>
+        <p class="hint">
+          If lists or uploads do not load, open <strong>Server URL</strong> in the header, enter the address where the platform runs, and use <strong>Test &amp; save</strong>. No command line is required.
+        </p>
+        <div class="panel" style="margin-top: 0.75rem; background: rgba(94, 225, 208, 0.08); border-color: rgba(94, 225, 208, 0.25)">
+          <h3 style="margin-top: 0">Quick trial</h3>
+          <p class="hint" style="margin-bottom: 0.5rem">
+            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load AIS trial scenario</strong> to preload the platform, then use the buttons below to fill the login fields.
+          </p>
+          <div class="row" style="flex-wrap: wrap; gap: 0.35rem">
+            <button type="button" class="secondary" id="btn-fill-admin">Fill: Administration (admin)</button>
+            <button type="button" class="secondary" id="btn-fill-teacher-trial">Fill: Trial teacher</button>
+            <button type="button" class="secondary" id="btn-fill-student-trial">Fill: Trial student</button>
+          </div>
+        </div>
+        <details class="panel" style="margin-top: 0.75rem">
+          <summary style="cursor: pointer; font-weight: 600">Three-tab exam rehearsal (after Load AIS trial scenario)</summary>
+          <ol class="hint" style="margin: 0.65rem 0 0; padding-left: 1.25rem; line-height: 1.65">
+            <li>Open <strong>three tabs</strong> to the same site address (for example three times <kbd>Ctrl+T</kbd>). Each tab remembers its own role.</li>
+            <li>
+              <strong>Tab 1 – Administration:</strong> Load AIS trial scenario on <strong>Rosters &amp; Excel</strong>, then you can stay on <strong>Live control</strong> to watch rooms. There is no separate &quot;approve each student&quot; button; the lobby opens by time for this trial.
+            </li>
+            <li>
+              <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. You will see room log and integrity flags from the student tab.
+            </li>
+            <li>
+              <strong>Tab 3 – Student:</strong> Quick fill trial student → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Enter exam room and load paper</strong>. Questions appear below the timer; click one radio option per question to answer.
+            </li>
+          </ol>
+        </details>
+        <div class="row" style="margin-top: 0.75rem">
+          <label>
+            Role
+            <select id="role">
+              <option value="admin">Administration</option>
+              <option value="proctor">Teacher / proctor</option>
+              <option value="student">Student</option>
+            </select>
+          </label>
+          <label>
+            <span id="user-id-label">User id</span>
+            <input id="userId" type="text" autocomplete="username" />
+          </label>
+          <label>
+            Display name (optional)
+            <input id="displayName" type="text" autocomplete="name" />
+          </label>
+          <button type="button" id="btn-login" aria-describedby="user-id-label">Continue</button>
+        </div>
+      </section>
+
+      <div id="view-app" class="hidden">
+        <div class="tabs" id="nav-tabs" role="tablist" aria-label="Main workspace">
+          <button type="button" data-tabbtn="admin" id="nav-admin" class="hidden" role="tab" aria-selected="false">Rosters &amp; Excel</button>
+          <button type="button" data-tabbtn="exam" id="nav-exam" class="hidden secondary" role="tab" aria-selected="false">Create exam</button>
+          <button type="button" data-tabbtn="live" id="nav-live" class="hidden secondary" role="tab" aria-selected="false">Live control</button>
+          <button type="button" data-tabbtn="proctor" id="nav-proctor" class="hidden secondary" role="tab" aria-selected="false">Proctor desk</button>
+          <button type="button" data-tabbtn="student" id="nav-student" class="hidden secondary" role="tab" aria-selected="false">Student desk</button>
+        </div>
+
+        <section data-tab="admin" class="hidden">
+          <div class="panel" style="margin-bottom: 1rem">
+            <h2>If your browser or Windows blocks the download</h2>
+            <p class="hint">
+              SmartScreen and some antivirus tools may warn about Office files from a local server. Try the
+              <strong>CSV template</strong> link below (same columns, often fewer warnings). After download, you can open
+              the CSV in Excel and use <strong>Save As</strong> to create an <code>.xlsx</code> if you prefer. On
+              Windows: right-click the file, <strong>Properties</strong>, then press <strong>Unblock</strong> if you see
+              it, or use <strong>Keep</strong> / <strong>Show more</strong> in the browser download bar.
+            </p>
+          </div>
+          <div class="grid grid-2">
+            <div class="panel">
+              <h2>Students (Excel or CSV)</h2>
+              <p class="hint">
+                Required columns: <code>Student ID</code>, <code>Full Name</code>, <code>Email</code>,
+                <code>Academic Stage</code> (or Stage), <code>Grade</code>. First sheet is read.
+              </p>
+              <p class="hint">
+                <a class="template-dl" href="/api/admin/template/students" download="students_roster_template.xlsx"
+                  >Download Excel (.xlsx) template</a
+                >
+                <a
+                  class="template-dl"
+                  href="/api/admin/template/students.csv"
+                  download="students_roster_template.csv"
+                  style="margin-left: 0.5rem"
+                  >Download CSV template</a
+                >
+              </p>
+              <div class="file-drop row" style="align-items: center">
+                <input id="file-students" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+                <button type="button" class="secondary" id="btn-upload-students">Upload</button>
+              </div>
+              <p class="hint" id="upload-students-result"></p>
+            </div>
+            <div class="panel">
+              <h2>Teachers (Excel or CSV)</h2>
+              <p class="hint">
+                Required columns: <code>Staff ID</code>, <code>Full Name</code>, <code>Email</code>,
+                <code>Supervised Grade</code> (must match a grade value used for students, for example
+                <code>Grade 4</code>).
+              </p>
+              <p class="hint">
+                <a class="template-dl" href="/api/admin/template/teachers" download="teachers_roster_template.xlsx"
+                  >Download Excel (.xlsx) template</a
+                >
+                <a
+                  class="template-dl"
+                  href="/api/admin/template/teachers.csv"
+                  download="teachers_roster_template.csv"
+                  style="margin-left: 0.5rem"
+                  >Download CSV template</a
+                >
+              </p>
+              <div class="file-drop row" style="align-items: center">
+                <input id="file-teachers" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" />
+                <button type="button" class="secondary" id="btn-upload-teachers">Upload</button>
+              </div>
+              <p class="hint" id="upload-teachers-result"></p>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Quick demo data</h2>
+            <p class="hint">
+              Loads seventy students and twelve teachers in Grade 4, five rooms, two proctors per room, random staff
+              placement. Use for testing without Excel.
+            </p>
+            <button type="button" class="ghost" id="btn-seed-demo">Load demo roster</button>
+          </div>
+          <div class="panel">
+            <h2>Full trial scenario (Hala + Rojan)</h2>
+            <p class="hint">
+              One student <strong>D50435</strong> (Hala Mohammad Omar Shaban), one teacher <strong>AIS-ROJAN</strong> (Rojan Adnan Hasan,
+              <code>rojan.hasan@Ais.edu.krd</code>), one room, one proctor, a short question paper, schedule with lobby already open,
+              and published. Use this for a full walkthrough: teacher can re-upload questions from the Proctor desk before the student enters.
+            </p>
+            <button type="button" id="btn-seed-ais-trial">Load AIS trial scenario</button>
+            <p class="hint" id="seed-ais-result" style="margin-top: 0.65rem"></p>
+          </div>
+          <details class="panel">
+            <summary style="cursor: pointer; font-weight: 600">Professional capability map (this build vs roadmap)</summary>
+            <p class="hint" style="margin: 0.5rem 0 0">
+              Source of truth: <a href="/api/platform/status" target="_blank" rel="noopener">/api/platform/status</a> (JSON for procurement).
+            </p>
+            <p class="hint" style="margin-top: 0.35rem"><strong>In this build</strong></p>
+            <ul id="platform-shipped-list" class="hint" style="margin: 0.25rem 0 0; padding-left: 1.25rem; line-height: 1.55"></ul>
+            <p class="hint" style="margin-top: 0.65rem"><strong>Roadmap (production)</strong></p>
+            <ul id="platform-roadmap-list" class="hint" style="margin: 0.25rem 0 0; padding-left: 1.25rem; line-height: 1.55"></ul>
+            <p class="hint" id="platform-hosting-note" style="margin-top: 0.65rem"></p>
+          </details>
+        </section>
+
+        <section data-tab="exam" class="hidden">
+          <div class="panel">
+            <h2>Question papers (upload before choosing a model)</h2>
+            <p class="hint">
+              After the student roster is on the platform, you can upload your own paper here. Download the template,
+              fill it in Excel, then upload. The new paper appears in the Question model list below with an
+              <strong>[Uploaded]</strong> tag. Demo papers stay available as <strong>[Demo]</strong>.
+            </p>
+            <p class="hint">
+              <a class="template-dl" href="/api/admin/template/questions" download="questions_template.xlsx"
+                >Download question Excel template</a
+              >
+            </p>
+            <p class="hint">
+              <strong>File format:</strong> <code>.xlsx</code> or <code>.xls</code> (first sheet only). One row per question.
+              <strong>Columns</strong> (header row, names are matched flexibly): <code>Question ID</code> (optional),
+              <code>Question Text</code> (required), then <code>Choice A</code> … <code>Choice D</code>, and optional <code>Correct</code>
+              (letter <code>A</code>–<code>D</code>, number <code>1</code>–<code>4</code>, or exact option text) for <strong>automatic multiple-choice scoring</strong>.
+              You need at least <strong>two</strong> non-empty choices; three or four are fine. This demo stores multiple-choice answers only (no essays or images).
+            </p>
+            <div class="row" style="align-items: center; flex-wrap: wrap; gap: 0.5rem">
+              <label>
+                Optional label on the platform
+                <input id="q-model-label" type="text" placeholder="e.g. Math midterm" style="min-width: 12rem" />
+              </label>
+              <label>
+                Question file (.xlsx)
+                <input id="file-questions" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              </label>
+              <button type="button" class="secondary" id="btn-upload-questions">Upload questions</button>
+            </div>
+            <p class="hint" id="upload-questions-result"></p>
+            <h3 style="margin-top: 1rem; margin-bottom: 0.35rem">Uploaded papers</h3>
+            <div id="question-models-list"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Create exam session</h2>
+            <p class="hint">
+              Order: upload rosters (Admin tab), optionally upload a question file above, then pick the grade (values
+              come only from the Grade column in your student file), set rooms, and apply layout. Set schedule and pick a
+              question model. You can assign proctors manually (teacher names appear) or use random fill. Publishing
+              fills any missing slots from eligible teachers when possible, then checks each room.
+            </p>
+            <div class="row" style="margin-top: 0.75rem">
+              <label>
+                Grade for this exam
+                <select id="ex-grade"></select>
+              </label>
+              <p id="ex-grade-hint" class="hint" style="width: 100%; margin: 0.25rem 0 0"></p>
+              <label>
+                Students in this grade
+                <input id="ex-grade-count" type="text" readonly />
+              </label>
+              <label>
+                Number of rooms
+                <input id="ex-rooms" type="number" min="1" step="1" value="5" />
+              </label>
+              <label>
+                Lobby opens (minutes before start)
+                <input id="ex-lobby" type="number" min="0" step="1" value="10" />
+              </label>
+              <button type="button" id="ex-apply-layout">Apply room layout</button>
+            </div>
+            <div class="row" style="margin-top: 0.5rem">
+              <label>
+                Exam start (local)
+                <input id="ex-start" type="datetime-local" />
+              </label>
+              <label>
+                Exam end (local)
+                <input id="ex-end" type="datetime-local" />
+              </label>
+              <label style="flex: 1">
+                Question model
+                <select id="ex-model"></select>
+              </label>
+              <label>
+                Questions per student (optional pool)
+                <input
+                  id="ex-paper-draw"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="All in model"
+                  title="Leave empty to deliver every question. If smaller than the model, each student receives a random subset (order still shuffled)."
+                />
+              </label>
+              <button type="button" class="secondary" id="ex-save-core">Save schedule &amp; model</button>
+            </div>
+            <p class="hint">
+              <strong>Question pool:</strong> set a number lower than the model size to give each student a different random subset (recommended pool is larger than the draw count). Same shuffle rules and
+              <code>Correct</code> keys apply to issued items only.
+            </p>
+          </div>
+
+          <div class="panel">
+            <h2>Rooms and proctors</h2>
+            <p class="hint">Set required proctors per room, then assign. Random uses only teachers whose supervised grade matches the exam grade.</p>
+            <div class="row">
+              <button type="button" class="secondary" id="ex-save-rooms">Save proctor counts</button>
+              <button type="button" class="secondary" id="ex-assign-random">Random proctor assignment</button>
+              <button type="button" id="ex-assign-manual">Save manual selection below</button>
+            </div>
+            <div id="ex-rooms-manual" class="grid" style="margin-top: 0.75rem"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Publish</h2>
+            <p class="hint">
+              Before publish, the server fills missing proctor slots from teachers whose supervised grade matches the
+              exam, when enough staff exist. If you still see an error, lower &quot;Proctors required&quot; per room or
+              add teachers for that grade in the roster.
+            </p>
+            <button type="button" id="ex-publish">Publish exam configuration</button>
+            <span id="ex-publish-msg" class="hint" style="margin-left: 0.5rem"></span>
+          </div>
+        </section>
+
+        <section data-tab="live" class="hidden">
+          <div class="panel">
+            <h2>Session timing</h2>
+            <div class="row">
+              <label>
+                Extend exam by (minutes, end time only)
+                <input id="live-extend" type="number" min="1" max="240" value="10" />
+              </label>
+              <button type="button" id="btn-extend">Apply extension</button>
+              <button type="button" class="warn" id="btn-open-lobby">Open lobby now (testing)</button>
+            </div>
+            <p class="hint" id="live-timing-hint"></p>
+          </div>
+          <div class="panel">
+            <h2>Rooms</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Students</th>
+                  <th>Required proctors</th>
+                  <th>Assigned staff</th>
+                  <th>Observe</th>
+                </tr>
+              </thead>
+              <tbody id="live-rooms-body"></tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h2>Automatic MCQ results (selected paper)</h2>
+            <p class="hint" id="live-mcq-grade-hint"></p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Correct</th>
+                  <th>Keyed items</th>
+                  <th>Percent</th>
+                </tr>
+              </thead>
+              <tbody id="live-mcq-grade-body"></tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h2>Item analysis (keyed MCQ)</h2>
+            <p class="hint" id="live-item-analysis-hint">Share correct among attempts in the target grade for questions that have a Correct key.</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Question</th>
+                  <th>Attempts</th>
+                  <th>% correct</th>
+                </tr>
+              </thead>
+              <tbody id="live-item-analysis-body"></tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h2>Audit log (recent)</h2>
+            <p class="hint">Tamper-evident storage would use a database or append-only log in production. This trial keeps the last events in memory.</p>
+            <div id="live-audit-log" class="log" style="max-height: 220px"></div>
+          </div>
+          <div class="grid grid-2">
+            <div class="panel">
+              <h2>Proctor help requests</h2>
+              <div id="live-incidents" class="log"></div>
+            </div>
+            <div class="panel">
+              <h2>Integrity feed (demo)</h2>
+              <div id="live-integrity" class="log"></div>
+            </div>
+          </div>
+        </section>
+
+        <section data-tab="proctor" class="hidden">
+          <div class="panel">
+            <h2>Question paper (teacher)</h2>
+            <p class="hint">
+              Upload uses the same secure upload channel as administration; your Staff ID is attached so the paper is credited to you. You must be logged in as Teacher / proctor. After upload,
+              administration can confirm the selected model under <strong>Create exam</strong> if the exam is not yet final.
+            </p>
+            <p class="hint">
+              <strong>Same Excel rules as administration:</strong> first sheet; columns <code>Question ID</code> (optional),
+              <code>Question Text</code>, <code>Choice A</code>–<code>Choice D</code>, optional <code>Correct</code> for auto-scoring; minimum two choices per row; multiple choice only.
+            </p>
+            <p class="hint">
+              <a class="template-dl" href="/api/admin/template/questions" download="question_paper_template.xlsx">Download question template</a>
+            </p>
+            <div class="row" style="align-items: center; flex-wrap: wrap; gap: 0.5rem">
+              <label>
+                Optional label
+                <input id="teacher-q-model-label" type="text" placeholder="e.g. Unit 2 revision" style="min-width: 11rem" />
+              </label>
+              <label>
+                Question file (.xlsx)
+                <input id="file-teacher-questions" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              </label>
+              <button type="button" class="secondary" id="btn-teacher-upload-questions">Upload my questions</button>
+            </div>
+            <p class="hint" id="teacher-upload-questions-result"></p>
+          </div>
+          <div class="panel">
+            <h2>Access status</h2>
+            <p id="proctor-gate-line" class="hint"></p>
+            <div class="row">
+              <button type="button" id="btn-proctor-join">Join my assigned room</button>
+              <span id="proctor-status" class="hint"></span>
+            </div>
+            <div id="proctor-help-wrap" class="hidden" style="margin-top: 0.75rem">
+              <button type="button" class="warn" id="btn-proctor-help">Request administration support</button>
+              <p class="hint">Visible only after you join your room during the lobby window. Sends a notice to administration.</p>
+            </div>
+            <div class="row" style="margin-top: 0.75rem">
+              <label>
+                Private message to Student ID
+                <input id="pm-to" type="text" placeholder="S0001" />
+              </label>
+              <label style="flex: 1">
+                Message
+                <input id="pm-text" type="text" />
+              </label>
+              <button type="button" class="secondary" id="btn-send-private">Send private</button>
+            </div>
+            <div class="panel" style="margin-top: 0.75rem">
+              <h3 style="margin-top: 0">Automatic MCQ scores (this room)</h3>
+              <p class="hint">Join your room first. Scores use the <strong>Correct</strong> column in the question file (same shuffle logic as the student paper).</p>
+              <button type="button" class="secondary" id="btn-proctor-mcq-refresh">Refresh MCQ scores</button>
+              <p class="hint" id="proctor-mcq-grade-hint" style="margin-top: 0.5rem"></p>
+              <table style="margin-top: 0.5rem">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Correct</th>
+                    <th>Keyed</th>
+                    <th>Percent</th>
+                  </tr>
+                </thead>
+                <tbody id="proctor-mcq-grade-body"></tbody>
+              </table>
+            </div>
+            <h3>Room log</h3>
+            <div id="proctor-chat-log" class="log"></div>
+          </div>
+        </section>
+
+        <section data-tab="student" class="hidden">
+          <div id="consent-modal" class="modal-backdrop">
+            <div class="modal">
+              <h3>Camera and microphone</h3>
+              <p>
+                Enable your camera and microphone for this trial session. Motion and audio heuristics may send flags to
+                proctors. This is not a certified proctoring product.
+              </p>
+              <p class="hint">Camera and microphone are required for this trial so motion and audio signals can reach your proctor.</p>
+              <button type="button" id="btn-consent">Allow camera and microphone</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>Student desk</h2>
+            <p class="hint" style="margin-bottom: 0.5rem">
+              Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. If the link is not open yet, wait for the lobby window or ask administration to use
+              <strong>Open lobby now (testing)</strong> on the Live control tab.
+            </p>
+            <p id="student-gate-line" class="hint"></p>
+            <div class="video-wrap">
+              <video id="student-video" autoplay playsinline muted></video>
+            </div>
+            <p class="hint">Preview is muted to reduce feedback. Audio is still sampled for the demo detector.</p>
+            <div id="student-after-consent" class="hidden">
+              <div id="student-policy-box" class="panel" style="margin-bottom: 0.75rem">
+                <h3 style="margin-top: 0" id="student-policy-title">Academic integrity &amp; exam rules</h3>
+                <p class="hint" id="student-policy-loading">Loading policy…</p>
+                <div id="student-policy-body" class="hidden"></div>
+                <label class="honesty-row">
+                  <input type="checkbox" id="honesty-check" autocomplete="off" />
+                  <span>I have read and agree to follow these rules for this attempt.</span>
+                </label>
+                <button type="button" id="btn-enter-exam" disabled aria-describedby="honesty-check">Begin exam (join room &amp; load paper)</button>
+              </div>
+              <p id="student-room-label" class="hint"></p>
+              <div class="panel" style="margin-top: 0.75rem">
+                <h3 style="margin-top: 0">Private messages</h3>
+                <div id="student-pm-log" class="log" style="max-height: 140px"></div>
+                <div class="row" style="margin-top: 0.5rem">
+                  <label>
+                    Staff ID to reply
+                    <input id="student-pm-to" type="text" placeholder="T001" />
+                  </label>
+                  <label style="flex: 1">
+                    Message
+                    <input id="student-pm-body" type="text" />
+                  </label>
+                  <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                </div>
+              </div>
+              <div id="exam-area" style="margin-top: 1rem"></div>
+              <div id="student-mcq-result" class="panel hidden" style="margin-top: 0.75rem"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="modal-observe" class="modal-backdrop hidden">
+        <div class="modal" style="max-width: 720px">
+          <h3 id="observe-title">Room observation</h3>
+          <p class="hint">
+            Signalling view: roster joins and integrity flags. Production video would use WebRTC with a media server.
+          </p>
+          <div id="observe-log" class="log" style="max-height: 300px"></div>
+          <button type="button" class="secondary" id="btn-close-observe" style="margin-top: 0.75rem">Close</button>
+        </div>
+      </div>
+    </main>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

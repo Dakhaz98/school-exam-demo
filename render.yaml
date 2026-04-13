@@ -1,0 +1,12 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# After connect: Dashboard → New → Blueprint → select this repo (or paste raw YAML).
+
+services:
+  - type: web
+    name: school-exam-demo
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
