@@ -58,12 +58,15 @@
         <div class="panel" style="margin-top: 0.75rem; background: rgba(94, 225, 208, 0.08); border-color: rgba(94, 225, 208, 0.25)">
           <h3 style="margin-top: 0">Quick trial</h3>
           <p class="hint" style="margin-bottom: 0.5rem">
-            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load AIS trial scenario</strong> to preload the platform, then use the buttons below to fill the login fields.
+            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load AIS trial scenario</strong> to preload the platform, then use <strong>Fill: Student-1 / 2 / 3</strong> and <strong>Fill: teacher-1 / 2</strong> below (one device per student id).
           </p>
           <div class="row" style="flex-wrap: wrap; gap: 0.35rem">
             <button type="button" class="secondary" id="btn-fill-admin">Fill: Administration (admin)</button>
-            <button type="button" class="secondary" id="btn-fill-teacher-trial">Fill: Trial teacher</button>
-            <button type="button" class="secondary" id="btn-fill-student-trial">Fill: Trial student</button>
+            <button type="button" class="secondary" id="btn-fill-teacher-1">Fill: teacher-1</button>
+            <button type="button" class="secondary" id="btn-fill-teacher-2">Fill: teacher-2</button>
+            <button type="button" class="secondary" id="btn-fill-student-1">Fill: Student-1</button>
+            <button type="button" class="secondary" id="btn-fill-student-2">Fill: Student-2</button>
+            <button type="button" class="secondary" id="btn-fill-student-3">Fill: Student-3</button>
           </div>
         </div>
         <details class="panel" style="margin-top: 0.75rem">
@@ -74,10 +77,10 @@
               <strong>Tab 1 – Administration:</strong> Load a demo scenario on <strong>Rosters &amp; Excel</strong>, then use <strong>Live control</strong> → <strong>Open command center</strong> on a room: a <strong>new tab</strong> opens with the full room dashboard (same tools as the teacher view). If the pop-up is blocked, the command center opens in the current tab instead.
             </li>
             <li>
-              <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> so questions can load. You will see camera feeds, the room log, and integrity flags.
+              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). You will see camera feeds, the room log, and integrity flags.
             </li>
             <li>
-              <strong>Tab 3 – Student:</strong> Quick fill trial student → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. The app waits until the teacher admits you and releases the paper; then questions appear one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
+              <strong>Tab 3 – Student:</strong> Quick fill <strong>Student-1</strong> (or 2 / 3 on other devices) → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. You will see a <strong>waiting area</strong> first; after admit and paper release, the exam page shows questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
             </li>
           </ol>
         </details>
@@ -182,11 +185,9 @@
             <button type="button" class="ghost" id="btn-seed-demo">Load demo roster</button>
           </div>
           <div class="panel">
-            <h2>Full trial scenario (Hala + Rojan)</h2>
+            <h2>Full trial scenario (Student-1…3 + teacher-1…2)</h2>
             <p class="hint">
-              One student <strong>D50435</strong> (Hala Mohammad Omar Shaban), one teacher <strong>AIS-ROJAN</strong> (Rojan Adnan Hasan,
-              <code>rojan.hasan@Ais.edu.krd</code>), one room, one proctor, a short question paper, schedule with lobby already open,
-              and published. Use this for a full walkthrough: teacher can re-upload questions from the Proctor desk before the student enters.
+              Students <strong>Student-1</strong>, <strong>Student-2</strong>, <strong>Student-3</strong> (Grade 10, same room) and teachers <strong>teacher-1</strong>, <strong>teacher-2</strong> (both assigned proctors). One room, short schedule with lobby open for testing, 10-question MCQ paper, published. Either teacher may <strong>Admit</strong> students; one of them must click <strong>Release question paper</strong> or questions will not load. Use one browser/device per student id.
             </p>
             <button type="button" id="btn-seed-ais-trial">Load AIS trial scenario</button>
             <p class="hint" id="seed-ais-result" style="margin-top: 0.65rem"></p>
@@ -529,7 +530,7 @@
           <div class="panel">
             <h2>Student desk</h2>
             <p class="hint" style="margin-bottom: 0.5rem">
-              Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. Your teacher must admit you and release the paper before any question appears. If the link is not open yet, wait for the lobby window or ask administration to use
+              Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. You will first see a <strong>waiting area</strong> while you are transferred to the exam room; your teacher must <strong>admit</strong> you and <strong>release the paper</strong> before any question appears. If the link is not open yet, wait for the lobby window or ask administration to use
               <strong>Open lobby now (testing)</strong> on the Live control tab.
             </p>
             <p id="student-gate-line" class="hint"></p>
@@ -538,34 +539,47 @@
             </div>
             <p class="hint">Preview is muted to reduce feedback. Audio is still sampled for the demo detector.</p>
             <div id="student-after-consent" class="hidden">
-              <div id="student-policy-box" class="panel" style="margin-bottom: 0.75rem">
-                <h3 style="margin-top: 0" id="student-policy-title">Academic integrity &amp; exam rules</h3>
-                <p class="hint" id="student-policy-loading">Loading policy…</p>
-                <div id="student-policy-body" class="hidden"></div>
-                <label class="honesty-row">
-                  <input type="checkbox" id="honesty-check" autocomplete="off" />
-                  <span>I have read and agree to follow these rules for this attempt.</span>
-                </label>
-                <button type="button" id="btn-enter-exam" disabled aria-describedby="honesty-check">Begin exam (join room &amp; wait for teacher)</button>
-              </div>
-              <p id="student-room-label" class="hint"></p>
-              <div class="panel" style="margin-top: 0.75rem">
-                <h3 style="margin-top: 0">Private messages</h3>
-                <div id="student-pm-log" class="log" style="max-height: 140px"></div>
-                <div class="row" style="margin-top: 0.5rem">
-                  <label>
-                    Staff ID to reply
-                    <input id="student-pm-to" type="text" placeholder="T001" />
+              <div id="student-preexam-block">
+                <div id="student-policy-box" class="panel" style="margin-bottom: 0.75rem">
+                  <h3 style="margin-top: 0" id="student-policy-title">Academic integrity &amp; exam rules</h3>
+                  <p class="hint" id="student-policy-loading">Loading policy…</p>
+                  <div id="student-policy-body" class="hidden"></div>
+                  <label class="honesty-row">
+                    <input type="checkbox" id="honesty-check" autocomplete="off" />
+                    <span>I have read and agree to follow these rules for this attempt.</span>
                   </label>
-                  <label style="flex: 1">
-                    Message
-                    <input id="student-pm-body" type="text" />
-                  </label>
-                  <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                  <button type="button" id="btn-enter-exam" disabled aria-describedby="honesty-check">Begin exam (join room &amp; wait for teacher)</button>
                 </div>
               </div>
-              <div id="exam-area" style="margin-top: 1rem"></div>
-              <div id="student-mcq-result" class="panel hidden" style="margin-top: 0.75rem"></div>
+              <div id="student-wait-lounge" class="hidden panel student-wait-lounge" style="margin-bottom: 0.75rem">
+                <h3 style="margin-top: 0" id="student-lounge-title">Transferring you to the exam room</h3>
+                <p id="student-lounge-bilingual" class="hint student-lounge-lead">
+                  <strong>English:</strong> Please wait — you are being connected to the exam room. Your proctor will admit you, then release the question paper.<br />
+                  <strong>العربية:</strong> يرجى الانتظار — جاري تحويلك إلى غرفة الامتحان والاتصال بالمراقب؛ سيقوم المعلم بقبولك ثم بإطلاق ورقة الأسئلة.
+                </p>
+                <p id="student-lounge-status" class="hint" style="margin-top: 0.65rem"></p>
+                <div class="exam-wait-spinner" aria-hidden="true"></div>
+              </div>
+              <div id="student-exam-workspace" class="hidden">
+                <p id="student-room-label" class="hint"></p>
+                <div class="panel" style="margin-top: 0.75rem">
+                  <h3 style="margin-top: 0">Private messages</h3>
+                  <div id="student-pm-log" class="log" style="max-height: 140px"></div>
+                  <div class="row" style="margin-top: 0.5rem">
+                    <label>
+                      Staff ID to reply
+                      <input id="student-pm-to" type="text" placeholder="teacher-1" />
+                    </label>
+                    <label style="flex: 1">
+                      Message
+                      <input id="student-pm-body" type="text" />
+                    </label>
+                    <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                  </div>
+                </div>
+                <div id="exam-area" style="margin-top: 1rem"></div>
+                <div id="student-mcq-result" class="panel hidden" style="margin-top: 0.75rem"></div>
+              </div>
             </div>
           </div>
         </section>
@@ -589,7 +603,7 @@
             <div class="row" style="flex-wrap: wrap; gap: 0.5rem">
               <label>
                 Student ID
-                <input id="admin-room-pm-to" type="text" placeholder="D50435" />
+                <input id="admin-room-pm-to" type="text" placeholder="Student-1" />
               </label>
               <label style="flex: 1; min-width: 12rem">
                 Message

@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-20";
+const SERVER_BUILD_ID = "exam-demo-build-21";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -72,8 +72,6 @@ const INTEGRITY_POLICY = {
 };
 
 /** Ready-made trial logins (POST /api/admin/seed-demo-roster with JSON body {"variant":"ais"}) */
-const AIS_TRIAL_STUDENT_ID = "D50435";
-const AIS_TRIAL_TEACHER_STAFF_ID = "AIS-ROJAN";
 const AIS_TRIAL_MODEL_ID = "upload-ais-trial";
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -575,32 +573,56 @@ function aisTrialQuestionList() {
 }
 
 function runSeedAisTrialScenario() {
-  const student = {
-    studentId: AIS_TRIAL_STUDENT_ID,
-    fullName: "Hala Mohammad Omar Shaban",
-    email: "hala.d50435@students.demo",
-    stage: "Secondary",
-    grade: "Grade 10",
-  };
-  const teacher = {
-    staffId: AIS_TRIAL_TEACHER_STAFF_ID,
-    fullName: "Rojan Adnan Hasan",
-    email: "rojan.hasan@Ais.edu.krd",
-    supervisedGrade: "Grade 10",
-  };
+  const students = [
+    {
+      studentId: "Student-1",
+      fullName: "Student-1",
+      email: "student-1@demo.school",
+      stage: "Secondary",
+      grade: "Grade 10",
+    },
+    {
+      studentId: "Student-2",
+      fullName: "Student-2",
+      email: "student-2@demo.school",
+      stage: "Secondary",
+      grade: "Grade 10",
+    },
+    {
+      studentId: "Student-3",
+      fullName: "Student-3",
+      email: "student-3@demo.school",
+      stage: "Secondary",
+      grade: "Grade 10",
+    },
+  ];
+  const teachers = [
+    {
+      staffId: "teacher-1",
+      fullName: "teacher-1",
+      email: "teacher-1@demo.school",
+      supervisedGrade: "Grade 10",
+    },
+    {
+      staffId: "teacher-2",
+      fullName: "teacher-2",
+      email: "teacher-2@demo.school",
+      supervisedGrade: "Grade 10",
+    },
+  ];
   state.answers = {};
   resetStudentExamRuntimeFlags();
   state.incidents = [];
   state.integrityEvents = [];
-  state.students = [student];
-  state.teachers = [teacher];
+  state.students = students;
+  state.teachers = teachers;
   state.uploadedQuestionModels = state.uploadedQuestionModels.filter((m) => m.id !== AIS_TRIAL_MODEL_ID);
   state.uploadedQuestionModels.push({
     id: AIS_TRIAL_MODEL_ID,
-    label: "AIS trial paper (replace via teacher upload if you wish)",
+    label: "Trial paper (10 MCQ; replace via teacher upload if you wish)",
     questions: aisTrialQuestionList(),
     uploadedAt: new Date().toISOString(),
-    uploadedByStaffId: teacher.staffId,
+    uploadedByStaffId: teachers[0].staffId,
   });
   const ex = state.examSession;
   const now = Date.now();
@@ -615,18 +637,22 @@ function runSeedAisTrialScenario() {
   ex.rooms = [];
   ensureRoomsBuilt();
   for (const r of ex.rooms) {
-    r.proctorsRequired = 1;
-    r.proctorStaffIds = [teacher.staffId];
+    r.proctorsRequired = 2;
+    r.proctorStaffIds = [teachers[0].staffId, teachers[1].staffId];
   }
   ex.published = true;
   resetExamAdmissionState();
+  const primary = students[0];
+  const primaryT = teachers[0];
   return {
-    student: { role: "student", userId: student.studentId, displayName: student.fullName },
-    teacher: { role: "proctor", userId: teacher.staffId, displayName: teacher.fullName },
+    students: students.map((s) => ({ role: "student", userId: s.studentId, displayName: s.fullName })),
+    teachers: teachers.map((t) => ({ role: "proctor", userId: t.staffId, displayName: t.fullName })),
+    student: { role: "student", userId: primary.studentId, displayName: primary.fullName },
+    teacher: { role: "proctor", userId: primaryT.staffId, displayName: primaryT.fullName },
     admin: { role: "admin", userId: "admin", displayName: "Administration" },
-    grade: student.grade,
+    grade: primary.grade,
     note:
-      "Lobby is open for testing by schedule (the teacher does not click approve for each student in this demo). Use three browser tabs on the same URL; each tab keeps its own login. Student must allow camera and microphone before entering the exam.",
+      "Three students in one room; teacher-1 and teacher-2 are both assigned as proctors (either may Admit and must click Release question paper after students are ready — questions stay hidden until Release). Use one device per student id. Camera and microphone required before Begin exam.",
   };
 }
 
@@ -1321,7 +1347,7 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
     b.variant === "trio" || b.mode === "trio" || qv === "trio" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "trio";
   if (wantAis) {
     const scenario = runSeedAisTrialScenario();
-    appendAudit("seed_ais_trial", "AIS Hala + Rojan scenario", { actorRole: "admin", actorId: "admin" });
+    appendAudit("seed_ais_trial", "Trial Student-1..3 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
     io.emit("state:update", publicSnapshot());
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }

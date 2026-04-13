@@ -961,14 +961,23 @@ function bindAdminUploads() {
           body: JSON.stringify({ variant: "ais" }),
         });
         const sc =
-          r.scenario && r.scenario.student?.userId
+          r.scenario && Array.isArray(r.scenario.students) && r.scenario.students.length
             ? r.scenario
-            : r.state?.studentsCount === 1 &&
-                r.state?.teachersCount === 1 &&
+            : r.state?.studentsCount === 3 &&
+                r.state?.teachersCount === 2 &&
                 String(r.state?.examSession?.targetGrade || "") === "Grade 10"
               ? {
-                  student: { userId: "D50435", displayName: "Hala Mohammad Omar Shaban", role: "student" },
-                  teacher: { userId: "AIS-ROJAN", displayName: "Rojan Adnan Hasan", role: "proctor" },
+                  students: [
+                    { userId: "Student-1", displayName: "Student-1", role: "student" },
+                    { userId: "Student-2", displayName: "Student-2", role: "student" },
+                    { userId: "Student-3", displayName: "Student-3", role: "student" },
+                  ],
+                  teachers: [
+                    { userId: "teacher-1", displayName: "teacher-1", role: "proctor" },
+                    { userId: "teacher-2", displayName: "teacher-2", role: "proctor" },
+                  ],
+                  student: { userId: "Student-1", displayName: "Student-1", role: "student" },
+                  teacher: { userId: "teacher-1", displayName: "teacher-1", role: "proctor" },
                   admin: { userId: "admin", displayName: "Administration", role: "admin" },
                   grade: "Grade 10",
                   note: "Lobby window is open for testing. Each browser tab has its own login (session is per tab).",
@@ -979,12 +988,18 @@ function bindAdminUploads() {
             out.innerHTML =
               "<strong>Warning:</strong> The server did not return the AIS trial summary. You may be on an old build: restart the app from the latest project folder, set Server URL if needed, then try again.";
           } else {
+            const studLines = (sc.students || [sc.student].filter(Boolean))
+              .map((x) => `<code>${escapeHtml(x.userId)}</code> — ${escapeHtml(x.displayName || "")}`)
+              .join("<br/>");
+            const teachLines = (sc.teachers || [sc.teacher].filter(Boolean))
+              .map((x) => `<code>${escapeHtml(x.userId)}</code> — ${escapeHtml(x.displayName || "")}`)
+              .join("<br/>");
             out.innerHTML = [
-              "<strong>Scenario loaded.</strong> Open three tabs to the same site URL. Each tab keeps its own role after login. Use quick fill on the welcome screen, or:",
-              `<br/>Admin user id: <code>${escapeHtml(sc.admin?.userId || "admin")}</code>`,
-              `<br/>Teacher (proctor) user id: <code>${escapeHtml(sc.teacher?.userId || "")}</code> — ${escapeHtml(sc.teacher?.displayName || "")}`,
-              `<br/>Student user id: <code>${escapeHtml(sc.student?.userId || "")}</code> — ${escapeHtml(sc.student?.displayName || "")}`,
-              `<br/>Grade: <code>${escapeHtml(sc.grade || "")}</code>. Lobby is open for testing.`,
+              "<strong>Scenario loaded.</strong> Use one device per student id. Quick fill buttons are on the welcome screen.",
+              `<br/>Admin: <code>${escapeHtml(sc.admin?.userId || "admin")}</code>`,
+              `<br/>Teachers (proctors):<br/>${teachLines}`,
+              `<br/>Students:<br/>${studLines}`,
+              `<br/>Grade: <code>${escapeHtml(sc.grade || "")}</code>.`,
               `<br/><span class="hint">${escapeHtml(sc.note || "")}</span>`,
             ].join("");
           }
@@ -1366,7 +1381,7 @@ async function refreshProctorWaitlist(staffId) {
       if (relBtn) relBtn.disabled = true;
     } else {
       hint.textContent =
-        "Confirm each student is present, tap Admit for that student, then release the paper when the room is ready. Questions stay hidden until you release.";
+        "Confirm each student is present, tap Admit for that student, then click Release question paper. Admit alone is not enough — questions stay hidden until you release the paper for the whole room.";
       if (relBtn) relBtn.disabled = false;
     }
     tbody.innerHTML = "";
@@ -1726,15 +1741,33 @@ function bindStudent() {
       $("#student-gate-line").textContent = "The exam link is not open for students yet. See the banner at the top.";
       return;
     }
+
+    const loungeStatus = $("#student-lounge-status");
+    const preExam = $("#student-preexam-block");
+    const lounge = $("#student-wait-lounge");
+    const workspace = $("#student-exam-workspace");
+    const gateTop = $("#student-gate-line");
+    if (gateTop) gateTop.textContent = "";
+    preExam?.classList.add("hidden");
+    lounge?.classList.remove("hidden");
+    workspace?.classList.add("hidden");
+    if (loungeStatus) {
+      loungeStatus.innerHTML =
+        "<strong>Status:</strong> Please wait — you are being transferred to the exam room. / <strong>الحالة:</strong> يرجى الانتظار — جاري تحويلك إلى غرفة الامتحان.";
+    }
+
     let place;
     try {
       place = await api(`/api/student/${encodeURIComponent(sid)}/room`);
     } catch (e) {
-      $("#student-gate-line").textContent = e.message;
+      lounge?.classList.add("hidden");
+      preExam?.classList.remove("hidden");
+      if (gateTop) gateTop.textContent = e.message;
       return;
     }
-    $("#student-room-label").textContent = `${place.roomName} (${place.roomId})`;
-    $("#student-gate-line").textContent = "Connected to the room. Sending entry request…";
+    if (loungeStatus) {
+      loungeStatus.innerHTML = `${escapeHtml(place.roomName)} (${escapeHtml(place.roomId)}) — <strong>connected</strong>. Sending your entry request to the proctor…<br/><span class="hint" dir="rtl">تم الاتصال بالغرفة وجاري إرسال طلب الدخول إلى المراقب.</span>`;
+    }
     socket.emit("room:join", { roomId: place.roomId, userId: sid, role: "student" }, () => {});
 
     const v = $("#student-video");
@@ -1749,27 +1782,39 @@ function bindStudent() {
       studentWebRtcStop = startStudentWebRtcPublisher(place.roomId, sid, v.srcObject);
     }
 
-    const gateLine = $("#student-gate-line");
     try {
       await api(`/api/student/${encodeURIComponent(sid)}/request-entry`, { method: "POST", body: JSON.stringify({}) });
     } catch (e) {
       alert(e.message || String(e));
+      lounge?.classList.add("hidden");
+      preExam?.classList.remove("hidden");
       return;
+    }
+    if (loungeStatus) {
+      loungeStatus.innerHTML +=
+        "<br/><span class=\"hint\">Entry request sent. Wait for <strong>Admit</strong>, then the teacher must click <strong>Release question paper</strong> (both steps are required).</span><br/><span class=\"hint\" dir=\"rtl\">تم إرسال الطلب. انتظر قبول المعلم ثم يجب أن يضغط <strong>إطلاق ورقة الأسئلة</strong> — الخطوتان مطلوبتان.</span>";
     }
     try {
       await new Promise((resolve, reject) => {
         let done = false;
+        const onServerState = () => {
+          void entryPollTick();
+        };
         const finish = (fn, arg) => {
           if (done) return;
           done = true;
           clearStudentEntryPollTimer();
+          socket?.off?.("state:update", onServerState);
           fn(arg);
         };
-        const tick = async () => {
+        const entryPollTick = async () => {
           try {
             const st = await api(`/api/student/${encodeURIComponent(sid)}/entry-status`);
             if (!st.examPublished) {
-              if (gateLine) gateLine.textContent = "The exam is not published yet. Ask administration to publish.";
+              if (loungeStatus) {
+                loungeStatus.innerHTML =
+                  "The exam is not published yet. Ask administration to publish.<br/><span dir=\"rtl\">لم يُنشر الامتحان بعد؛ راجع الإدارة.</span>";
+              }
               return;
             }
             if (!st.gateAllowed) {
@@ -1777,16 +1822,19 @@ function bindStudent() {
               return;
             }
             if (st.admissionStatus !== "admitted") {
-              if (gateLine) {
-                gateLine.textContent =
+              if (loungeStatus) {
+                loungeStatus.innerHTML =
                   st.admissionStatus === "pending"
-                    ? "Waiting for the proctor to admit you to this room."
-                    : "You are not admitted yet. The proctor must admit you from the teacher desk.";
+                    ? "<strong>Waiting for proctor to admit you.</strong> Your request is in the teacher’s list.<br/><span dir=\"rtl\"><strong>في انتظار قبول المراقب.</strong> طلبك لدى المعلم.</span>"
+                    : "<strong>Not admitted yet.</strong> The proctor must tap <strong>Admit</strong> for your student id on the teacher desk.<br/><span dir=\"rtl\"><strong>لم يتم القبول بعد.</strong> يجب أن يضغط المعلم <strong>Admit</strong> لرقمك.</span>";
               }
               return;
             }
             if (!st.paperReleased) {
-              if (gateLine) gateLine.textContent = "You are admitted. Waiting for the proctor to release the question paper.";
+              if (loungeStatus) {
+                loungeStatus.innerHTML =
+                  "<strong>You are admitted.</strong> The question paper is still locked. The proctor must click <strong>Release question paper for this room</strong> (without this, questions will not appear).<br/><span dir=\"rtl\"><strong>تم قبولك.</strong> الورقة مقفلة؛ على المعلم الضغط على <strong>Release question paper</strong> وإلا لن تظهر الأسئلة.</span>";
+              }
               return;
             }
             finish(resolve, undefined);
@@ -1794,15 +1842,20 @@ function bindStudent() {
             finish(reject, e instanceof Error ? e : new Error(String(e)));
           }
         };
-        void tick();
-        studentEntryPollTimer = setInterval(() => void tick(), 2000);
+        socket?.on?.("state:update", onServerState);
+        void entryPollTick();
+        studentEntryPollTimer = setInterval(() => void entryPollTick(), 1000);
       });
     } catch (e) {
       alert(e.message || String(e));
       clearStudentEntryPollTimer();
+      lounge?.classList.add("hidden");
+      preExam?.classList.remove("hidden");
       return;
     }
-    if (gateLine) gateLine.textContent = "The paper is released. Loading your questions…";
+    lounge?.classList.add("hidden");
+    workspace?.classList.remove("hidden");
+    $("#student-room-label").textContent = `${place.roomName} (${place.roomId}) — exam in progress`;
 
     let paperMeta;
     try {
@@ -1994,18 +2047,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("#displayName").value = "Administration";
     syncUserIdLabel();
   });
-  $("#btn-fill-student-trial")?.addEventListener("click", () => {
+  const fillStudent = (id) => {
     $("#role").value = "student";
-    $("#userId").value = "D50435";
-    $("#displayName").value = "Hala Mohammad Omar Shaban";
+    $("#userId").value = id;
+    $("#displayName").value = id;
     syncUserIdLabel();
-  });
-  $("#btn-fill-teacher-trial")?.addEventListener("click", () => {
+  };
+  const fillTeacher = (id) => {
     $("#role").value = "proctor";
-    $("#userId").value = "AIS-ROJAN";
-    $("#displayName").value = "Rojan Adnan Hasan";
+    $("#userId").value = id;
+    $("#displayName").value = id;
     syncUserIdLabel();
-  });
+  };
+  $("#btn-fill-student-1")?.addEventListener("click", () => fillStudent("Student-1"));
+  $("#btn-fill-student-2")?.addEventListener("click", () => fillStudent("Student-2"));
+  $("#btn-fill-student-3")?.addEventListener("click", () => fillStudent("Student-3"));
+  $("#btn-fill-teacher-1")?.addEventListener("click", () => fillTeacher("teacher-1"));
+  $("#btn-fill-teacher-2")?.addEventListener("click", () => fillTeacher("teacher-2"));
 
   $("#btn-login").addEventListener("click", enterApp);
   $("#btn-logout").addEventListener("click", logout);

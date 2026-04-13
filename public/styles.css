@@ -33,6 +33,33 @@ a {
   color: var(--accent);
 }
 
+.student-wait-lounge {
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.student-lounge-lead {
+  font-size: 1.02rem;
+  line-height: 1.65;
+}
+
+.exam-wait-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 1rem auto 0.25rem;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: exam-wait-spin 0.8s linear infinite;
+}
+
+@keyframes exam-wait-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 a.template-dl {
   display: inline-flex;
   align-items: center;
