@@ -74,10 +74,10 @@
               <strong>Tab 1 – Administration:</strong> Load AIS trial scenario on <strong>Rosters &amp; Excel</strong>, then you can stay on <strong>Live control</strong> to watch rooms. There is no separate &quot;approve each student&quot; button; the lobby opens by time for this trial.
             </li>
             <li>
-              <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. You will see room log and integrity flags from the student tab.
+              <strong>Tab 2 – Teacher:</strong> Quick fill trial teacher → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. You will see a grid of student camera feeds (WebRTC demo), the room log, and integrity flags.
             </li>
             <li>
-              <strong>Tab 3 – Student:</strong> Quick fill trial student → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Enter exam room and load paper</strong>. Questions appear below the timer; click one radio option per question to answer.
+              <strong>Tab 3 – Student:</strong> Quick fill trial student → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. One multiple-choice item at a time: <strong>Submit answer</strong> until the last item, then <strong>Finish exam</strong> to complete your attempt.
             </li>
           </ol>
         </details>
@@ -435,6 +435,16 @@
               <button type="button" class="warn" id="btn-proctor-help">Request administration support</button>
               <p class="hint">Visible only after you join your room during the lobby window. Sends a notice to administration.</p>
             </div>
+            <div id="proctor-cam-section" class="hidden" style="margin-top: 1rem">
+              <h3 style="margin-top: 0">Live student cameras</h3>
+              <p class="hint">
+                One-way view of each student feed in this room (browser WebRTC mesh with public STUN). Some networks block peer video until you use a TURN service in production.
+              </p>
+              <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem">
+                <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
+              </div>
+              <div id="proctor-video-wall" class="video-wall"></div>
+            </div>
             <div class="row" style="margin-top: 0.75rem">
               <label>
                 Private message to Student ID
@@ -526,12 +536,16 @@
       </div>
 
       <div id="modal-observe" class="modal-backdrop hidden">
-        <div class="modal" style="max-width: 720px">
+        <div class="modal" style="max-width: 920px">
           <h3 id="observe-title">Room observation</h3>
           <p class="hint">
-            Signalling view: roster joins and integrity flags. Production video would use WebRTC with a media server.
+            Administration can open any exam room: live student camera tiles (same WebRTC demo as the proctor desk), roster joins, and integrity flags. Production deployments typically add a media server and TURN.
           </p>
-          <div id="observe-log" class="log" style="max-height: 300px"></div>
+          <div id="observe-video-wall" class="video-wall" style="margin-bottom: 0.75rem"></div>
+          <div class="row" style="margin-bottom: 0.5rem">
+            <button type="button" class="secondary" id="btn-observe-refresh-cam">Refresh camera connections</button>
+          </div>
+          <div id="observe-log" class="log" style="max-height: 220px"></div>
           <button type="button" class="secondary" id="btn-close-observe" style="margin-top: 0.75rem">Close</button>
         </div>
       </div>

@@ -13,7 +13,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-15";
+const SERVER_BUILD_ID = "exam-demo-build-16";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -30,6 +30,8 @@ const PLATFORM_SHIPPED = [
   { id: "audit_memory", label: "Audit log (in-memory; resets when the process restarts)" },
   { id: "question_pool", label: "Optional random subset (questions per student) from the selected model" },
   { id: "socket_realtime", label: "Socket.IO: roster signals, integrity flags, state refresh" },
+  { id: "webrtc_mesh", label: "Demo WebRTC: proctor & admin can open live camera tiles per room (STUN; production needs TURN)" },
+  { id: "sequential_mcq", label: "Sequential MCQ: one question at a time with submit before the next item unlocks" },
   { id: "a11y_basics", label: "Accessibility basics: skip link, tab roles, focus-visible" },
   { id: "headers", label: "Security headers: X-Content-Type-Options, build id on API responses" },
 ];
@@ -382,6 +384,8 @@ const state = {
   studentHonestyAck: {},
   /** @type {Record<string, string[]>} studentId -> question ids issued on last paper load */
   studentPaperSets: {},
+  /** @type {Record<string, number>} studentId -> next question index (sequential delivery) */
+  studentPaperCursor: {},
   integrityEvents: [],
   /** @type {{ id: string, at: string, roomId: string, staffId: string, message: string, note?: string }[]} */
   incidents: [],
@@ -406,9 +410,14 @@ function appendAudit(action, detail = "", meta = {}) {
   while (state.auditLog.length > MAX_AUDIT) state.auditLog.shift();
 }
 
+function clearIssuedPapers() {
+  state.studentPaperSets = {};
+  state.studentPaperCursor = {};
+}
+
 function resetStudentExamRuntimeFlags() {
   state.studentHonestyAck = {};
-  state.studentPaperSets = {};
+  clearIssuedPapers();
 }
 
 function getModel(id) {
@@ -547,6 +556,13 @@ function aisTrialQuestionList() {
     { id: "q1", text: "What is 15 + 7?", choices: ["20", "22", "21", "23"], correctIndex: 1 },
     { id: "q2", text: "Which word is spelled correctly?", choices: ["Accomodate", "Accommodate", "Acommodate", "Acomodate"], correctIndex: 1 },
     { id: "q3", text: "Water at sea level boils at:", choices: ["90°C", "100°C", "110°C", "120°C"], correctIndex: 1 },
+    { id: "q4", text: "How many sides does a triangle have?", choices: ["2", "3", "4", "5"], correctIndex: 1 },
+    { id: "q5", text: "Which planet is known as the Red Planet?", choices: ["Venus", "Mars", "Jupiter", "Saturn"], correctIndex: 1 },
+    { id: "q6", text: "What is the square root of 64?", choices: ["6", "7", "8", "9"], correctIndex: 2 },
+    { id: "q7", text: "Which gas do plants absorb from the air for photosynthesis?", choices: ["Oxygen", "Nitrogen", "Carbon dioxide", "Hydrogen"], correctIndex: 2 },
+    { id: "q8", text: "A dozen equals:", choices: ["10", "11", "12", "13"], correctIndex: 2 },
+    { id: "q9", text: "Which ocean is the largest?", choices: ["Atlantic", "Indian", "Arctic", "Pacific"], correctIndex: 3 },
+    { id: "q10", text: "How many minutes are in one hour?", choices: ["30", "45", "60", "90"], correctIndex: 2 },
   ];
 }
 
@@ -628,6 +644,82 @@ function roomForStudent(studentId) {
 function roomForStaff(staffId) {
   ensureRoomsBuilt();
   return state.examSession.rooms.find((r) => r.proctorStaffIds.includes(staffId)) || null;
+}
+
+function roomEntityById(roomId) {
+  ensureRoomsBuilt();
+  return state.examSession.rooms.find((r) => r.id === roomId) || null;
+}
+
+function canWebRtcRelay(fromUserId, fromRole, toUserId, roomId) {
+  const room = roomEntityById(roomId);
+  if (!room) return false;
+  const studentInRoom = room.studentIds.includes(fromUserId);
+  const proctorInRoom = room.proctorStaffIds.includes(fromUserId);
+  if (fromRole === "student" && studentInRoom) {
+    if (room.proctorStaffIds.includes(toUserId)) return true;
+    if (toUserId === "admin") return true;
+    return false;
+  }
+  if (fromRole === "proctor" && proctorInRoom && room.studentIds.includes(toUserId)) return true;
+  if (fromRole === "admin" && (room.studentIds.includes(toUserId) || room.proctorStaffIds.includes(toUserId))) return true;
+  return false;
+}
+
+/**
+ * @returns {{ ok: true, model: object, g: object } | { err: number, body: object }}
+ */
+function gateHonestyModelForStudent(sid) {
+  const g = gateFor("student", sid);
+  if (!g.allowed) return { err: 403, body: { error: g.reason, gate: g } };
+  if (!state.studentHonestyAck[sid]) {
+    return {
+      err: 403,
+      body: {
+        error: "honesty_required",
+        gate: g,
+        policyVersion: INTEGRITY_POLICY.version,
+      },
+    };
+  }
+  const model = state.examSession.selectedModelId ? getModel(state.examSession.selectedModelId) : null;
+  if (!model) return { err: 400, body: { error: "No model selected by administration." } };
+  return { ok: true, model, g };
+}
+
+function buildShuffledQuestionForStudent(sid, qid) {
+  const model = state.examSession.selectedModelId ? getModel(state.examSession.selectedModelId) : null;
+  if (!model) return null;
+  const q = model.questions.find((x) => x.id === qid);
+  if (!q) return null;
+  const perm = shuffle(q.choices.map((_, i) => i), sid + qid);
+  const choices = perm.map((i) => q.choices[i]);
+  return { id: q.id, text: q.text, choices };
+}
+
+/** Ensures question order exists for sid; preserves issued order if already present. */
+function initStudentPaperIfNeeded(sid) {
+  const chk = gateHonestyModelForStudent(sid);
+  if (chk.err) return chk;
+  const { model, g } = chk;
+  const ex = state.examSession;
+  if (state.studentPaperSets[sid]?.length) {
+    return { ok: true, model, g };
+  }
+  let order = shuffle(model.questions.map((q) => q.id), sid + ex.selectedModelId);
+  const cap = ex.paperDrawCount;
+  if (typeof cap === "number" && cap >= 1 && cap < order.length) {
+    order = order.slice(0, cap);
+  }
+  state.studentPaperSets[sid] = order;
+  state.studentPaperCursor[sid] = 0;
+  const prev = state.answers[sid] || {};
+  const next = {};
+  for (const qid of order) {
+    if (typeof prev[qid] === "number") next[qid] = prev[qid];
+  }
+  state.answers[sid] = next;
+  return { ok: true, model, g };
 }
 
 function lobbyOpensAt() {
@@ -1021,7 +1113,7 @@ function handleQuestionModelUpload(req, res) {
     const autoSelect = String(req.body?.autoSelect || "true").toLowerCase() !== "false";
     const uploadedBy = staffId && teacherRow ? staffId : null;
     const id = registerUploadedQuestionModel(questions, label, { uploadedByStaffId: uploadedBy, autoSelect });
-    state.studentPaperSets = {};
+    clearIssuedPapers();
     appendAudit(
       "upload_question_model",
       `${questions.length} questions · ${id}${uploadedBy ? ` · staff ${uploadedBy}` : ""}`,
@@ -1047,7 +1139,7 @@ app.delete("/api/admin/question-models/:id", (req, res) => {
   if (state.examSession.selectedModelId === id) {
     state.examSession.selectedModelId = state.uploadedQuestionModels[0]?.id || teacherModels[0]?.id || null;
   }
-  state.studentPaperSets = {};
+  clearIssuedPapers();
   appendAudit("delete_question_model", id, { actorRole: "admin", actorId: "admin" });
   io.emit("state:update", publicSnapshot());
   res.json({ ok: true, state: publicSnapshot() });
@@ -1119,7 +1211,7 @@ app.post("/api/admin/exam/apply-layout", (req, res) => {
     if (typeof b.defaultProctorsPerRoom === "number" && b.defaultProctorsPerRoom >= 0) r.proctorsRequired = b.defaultProctorsPerRoom;
     else if (r.proctorsRequired == null) r.proctorsRequired = 1;
   }
-  state.studentPaperSets = {};
+  clearIssuedPapers();
   appendAudit("exam_apply_layout", `${ex.roomCount} rooms · grade ${ex.targetGrade}`, { actorRole: "admin", actorId: "admin" });
   io.emit("state:update", publicSnapshot());
   res.json({ ok: true, state: publicSnapshot() });
@@ -1141,7 +1233,7 @@ app.post("/api/admin/exam/schedule", (req, res) => {
   if (new Date(ex.examEndAt) <= new Date(ex.examStartAt)) {
     return res.status(400).json({ ok: false, error: "Exam end time must be after start time." });
   }
-  state.studentPaperSets = {};
+  clearIssuedPapers();
   appendAudit("exam_schedule", `model ${ex.selectedModelId || "none"} · draw ${ex.paperDrawCount ?? "all"}`, { actorRole: "admin", actorId: "admin" });
   io.emit("state:update", publicSnapshot());
   res.json({ ok: true, state: publicSnapshot() });
@@ -1247,44 +1339,95 @@ app.get("/api/proctor/:staffId/room", (req, res) => {
 
 app.get("/api/student/:studentId/paper", (req, res) => {
   const sid = req.params.studentId;
-  const g = gateFor("student", sid);
-  if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
-  if (!state.studentHonestyAck[sid]) {
-    return res.status(403).json({
-      error: "honesty_required",
-      gate: g,
-      policyVersion: INTEGRITY_POLICY.version,
-    });
-  }
-  const model = state.examSession.selectedModelId ? getModel(state.examSession.selectedModelId) : null;
-  if (!model) return res.status(400).json({ error: "No model selected by administration." });
+  const init = initStudentPaperIfNeeded(sid);
+  if (init.err) return res.status(init.err).json(init.body);
+  const order = state.studentPaperSets[sid];
   const ex = state.examSession;
-  let order = shuffle(model.questions.map((q) => q.id), sid + ex.selectedModelId);
-  const cap = ex.paperDrawCount;
-  if (typeof cap === "number" && cap >= 1 && cap < order.length) {
-    order = order.slice(0, cap);
-  }
-  state.studentPaperSets[sid] = order;
-  const prev = state.answers[sid] || {};
-  const next = {};
-  for (const qid of order) {
-    if (typeof prev[qid] === "number") next[qid] = prev[qid];
-  }
-  state.answers[sid] = next;
-  const paper = order.map((qid) => {
-    const q = model.questions.find((x) => x.id === qid);
-    const perm = shuffle(q.choices.map((_, i) => i), sid + qid);
-    const choices = perm.map((i) => q.choices[i]);
-    return { id: q.id, text: q.text, choices };
-  });
   res.json({
-    paper,
+    delivery: "sequential",
     paperQuestionCount: order.length,
     examStartAt: ex.examStartAt,
     examEndAt: ex.examEndAt,
-    gate: g,
+    gate: init.g,
     feedbackHint: INTEGRITY_POLICY.feedbackAfterExam,
+    hint: "Questions are delivered one at a time. Use GET …/exam-current and POST …/exam-submit from the student app.",
   });
+});
+
+app.get("/api/student/:studentId/exam-current", (req, res) => {
+  const sid = req.params.studentId;
+  const init = initStudentPaperIfNeeded(sid);
+  if (init.err) return res.status(init.err).json(init.body);
+  const order = state.studentPaperSets[sid];
+  let idx = state.studentPaperCursor[sid];
+  if (typeof idx !== "number" || idx < 0) idx = 0;
+  const ex = state.examSession;
+  if (idx >= order.length) {
+    return res.json({
+      completed: true,
+      total: order.length,
+      index: order.length,
+      examStartAt: ex.examStartAt,
+      examEndAt: ex.examEndAt,
+      gate: init.g,
+    });
+  }
+  const qid = order[idx];
+  const question = buildShuffledQuestionForStudent(sid, qid);
+  if (!question) return res.status(500).json({ error: "Question model inconsistency." });
+  res.json({
+    completed: false,
+    index: idx,
+    total: order.length,
+    question,
+    examStartAt: ex.examStartAt,
+    examEndAt: ex.examEndAt,
+    gate: init.g,
+  });
+});
+
+app.post("/api/student/:studentId/exam-submit", (req, res) => {
+  const sid = req.params.studentId;
+  const init = initStudentPaperIfNeeded(sid);
+  if (init.err) return res.status(init.err).json(init.body);
+  const g = gateFor("student", sid);
+  if (!g.allowed) return res.status(403).json({ error: g.reason });
+  const { questionId, choiceIndex } = req.body || {};
+  if (!questionId || typeof choiceIndex !== "number") return res.status(400).json({ error: "Bad payload" });
+  const order = state.studentPaperSets[sid];
+  let idx = state.studentPaperCursor[sid];
+  if (typeof idx !== "number" || idx < 0) idx = 0;
+  if (idx >= order.length) return res.status(400).json({ error: "Exam already completed." });
+  if (order[idx] !== questionId) return res.status(400).json({ error: "Submit does not match the current question step." });
+  if (!state.answers[sid]) state.answers[sid] = {};
+  state.answers[sid][questionId] = choiceIndex;
+  idx += 1;
+  state.studentPaperCursor[sid] = idx;
+  const ex = state.examSession;
+  if (idx >= order.length) {
+    return res.json({ ok: true, completed: true, total: order.length, examEndAt: ex.examEndAt });
+  }
+  const nextQid = order[idx];
+  const question = buildShuffledQuestionForStudent(sid, nextQid);
+  if (!question) return res.status(500).json({ error: "Question model inconsistency." });
+  res.json({
+    ok: true,
+    completed: false,
+    index: idx,
+    total: order.length,
+    question,
+    examEndAt: ex.examEndAt,
+  });
+});
+
+app.get("/api/exam/room/:roomId/students", (req, res) => {
+  const room = roomEntityById(req.params.roomId);
+  if (!room) return res.status(404).json({ ok: false, error: "Unknown room." });
+  const students = room.studentIds.map((sid) => {
+    const st = studentById(sid);
+    return { studentId: sid, fullName: st?.fullName || sid };
+  });
+  res.json({ ok: true, roomId: room.id, roomLabel: room.label, students });
 });
 
 app.post("/api/student/:studentId/answer", (req, res) => {
@@ -1407,6 +1550,25 @@ io.on("connection", (socket) => {
     if (state.integrityEvents.length > 500) state.integrityEvents.shift();
     io.to(`staff:${roomId}`).emit("integrity:event", ev);
     io.emit("state:update", publicSnapshot());
+  });
+
+  socket.on("webrtc:relay", (payload) => {
+    const meta = socketMeta.get(socket.id);
+    const fromUserId = meta?.userId;
+    const fromRole = meta?.role;
+    const { toUserId, roomId, type, sdp, candidate } = payload || {};
+    if (!fromUserId || !toUserId || !roomId) return;
+    if (!canWebRtcRelay(fromUserId, fromRole, toUserId, roomId)) return;
+    io.to(`user:${toUserId}`).emit("webrtc:relay", { fromUserId, roomId, type, sdp, candidate });
+  });
+
+  socket.on("webrtc:student_cam_ready", (payload) => {
+    const meta = socketMeta.get(socket.id);
+    const { roomId, studentId } = payload || {};
+    if (!roomId || !studentId || meta?.role !== "student" || meta.userId !== studentId) return;
+    const room = roomEntityById(roomId);
+    if (!room || !room.studentIds.includes(studentId)) return;
+    io.to(`staff:${roomId}`).emit("webrtc:push_student_ready", { roomId, studentId });
   });
 
   socket.on("incident:raise", (payload) => {

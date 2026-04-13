@@ -15,6 +15,20 @@ let proctorRoomId = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let studentExamCountdown = null;
 
+const WEBRTC_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+
+/** @type {null | ((msg: any) => void)} */
+let webRtcStudentHandler = null;
+/** @type {null | ((msg: any) => void)} */
+let webRtcViewerHandler = null;
+/** @type {null | (() => void)} */
+let studentWebRtcStop = null;
+/** @type {null | (() => void)} */
+let viewerRtcTeardown = null;
+
+/** @type {{ roomId: string, viewerUserId: string, role: string, container: HTMLElement } | null} */
+let lastCameraViewCtx = null;
+
 const LS_API_ORIGIN = "examDemoApiOrigin";
 
 function resolveApiOrigin() {
@@ -237,6 +251,214 @@ function connectSocket() {
   const root = resolveApiOrigin();
   const opts = { transports: ["websocket", "polling"] };
   socket = root === window.location.origin ? io(opts) : io(root, opts);
+  socket.on("webrtc:relay", (msg) => {
+    try {
+      webRtcStudentHandler?.(msg);
+    } catch (e) {
+      console.warn(e);
+    }
+    try {
+      webRtcViewerHandler?.(msg);
+    } catch (e) {
+      console.warn(e);
+    }
+  });
+}
+
+function relayIceCandidate(toUserId, roomId, pc) {
+  pc.onicecandidate = (e) => {
+    if (e.candidate && socket?.connected) {
+      const cand = e.candidate.toJSON ? e.candidate.toJSON() : e.candidate;
+      socket.emit("webrtc:relay", { toUserId, roomId, type: "candidate", candidate: cand });
+    }
+  };
+}
+
+/**
+ * Student publishes camera/mic to each proctor or admin viewer that sends an offer.
+ * @returns {() => void}
+ */
+function startStudentWebRtcPublisher(roomId, studentId, stream) {
+  const peers = new Map();
+
+  webRtcStudentHandler = async (msg) => {
+    if (!msg || msg.roomId !== roomId) return;
+    const viewerId = msg.fromUserId;
+    if (!viewerId || viewerId === studentId) return;
+
+    if (msg.type === "offer" && msg.sdp) {
+      const old = peers.get(viewerId);
+      if (old) {
+        try {
+          old.close();
+        } catch {
+          /* ignore */
+        }
+        peers.delete(viewerId);
+      }
+      const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
+      peers.set(viewerId, pc);
+      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      relayIceCandidate(viewerId, roomId, pc);
+      await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("webrtc:relay", { toUserId: viewerId, roomId, type: "answer", sdp: answer.sdp });
+      return;
+    }
+
+    if (msg.type === "candidate" && msg.candidate) {
+      const p = peers.get(viewerId);
+      if (!p || !p.remoteDescription) return;
+      try {
+        await p.addIceCandidate(msg.candidate);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  try {
+    socket?.emit("webrtc:student_cam_ready", { roomId, studentId });
+  } catch {
+    /* ignore */
+  }
+
+  return () => {
+    webRtcStudentHandler = null;
+    for (const p of peers.values()) {
+      try {
+        p.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    peers.clear();
+  };
+}
+
+function findVideoTile(container, studentId) {
+  for (const el of container.querySelectorAll(".video-tile")) {
+    if (el.dataset.student === studentId) return el;
+  }
+  return null;
+}
+
+/**
+ * Proctor or admin: request one-way video/audio from each student in the room.
+ */
+async function startProctorViewCameras(roomId, viewerUserId, role, container) {
+  viewerRtcTeardown?.();
+  container.innerHTML = "";
+  lastCameraViewCtx = { roomId, viewerUserId, role, container };
+
+  const peers = new Map();
+
+  const handler = async (msg) => {
+    if (!msg || msg.roomId !== roomId) return;
+    const studentId = msg.fromUserId;
+    if (!studentId || studentId === viewerUserId) return;
+
+    if (msg.type === "answer" && msg.sdp) {
+      const pc = peers.get(studentId);
+      if (!pc) return;
+      await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+      const tile = findVideoTile(container, studentId);
+      const st = tile?.querySelector?.(".webrtc-status");
+      if (st) st.textContent = "Live";
+      return;
+    }
+
+    if (msg.type === "candidate" && msg.candidate) {
+      const pc = peers.get(studentId);
+      if (!pc || !pc.remoteDescription) return;
+      try {
+        await pc.addIceCandidate(msg.candidate);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  webRtcViewerHandler = handler;
+
+  const connectToStudent = async (studentId, fullName) => {
+    let wrap = findVideoTile(container, studentId);
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.className = "video-tile";
+      wrap.dataset.student = studentId;
+      wrap.innerHTML = `<p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><button type="button" class="secondary video-unmute-btn">Unmute this feed</button>`;
+      container.appendChild(wrap);
+      wrap.querySelector(".video-unmute-btn")?.addEventListener("click", () => {
+        const v = wrap.querySelector("video");
+        if (v) v.muted = !v.muted;
+      });
+    }
+    const videoEl = wrap.querySelector("video");
+    const statusEl = wrap.querySelector(".webrtc-status");
+    const oldPc = peers.get(studentId);
+    if (oldPc) {
+      try {
+        oldPc.close();
+      } catch {
+        /* ignore */
+      }
+      peers.delete(studentId);
+    }
+    const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
+    peers.set(studentId, pc);
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addTransceiver("audio", { direction: "recvonly" });
+    pc.ontrack = (ev) => {
+      if (ev.streams[0] && videoEl) videoEl.srcObject = ev.streams[0];
+    };
+    relayIceCandidate(studentId, roomId, pc);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("webrtc:relay", { toUserId: studentId, roomId, type: "offer", sdp: offer.sdp });
+    if (statusEl) statusEl.textContent = "Waiting for student…";
+  };
+
+  const onStudentCamReady = async (p) => {
+    if (!p || p.roomId !== roomId) return;
+    try {
+      const roster = await api(`/api/exam/room/${encodeURIComponent(roomId)}/students`);
+      const row = (roster.students || []).find((x) => x.studentId === p.studentId);
+      if (row) await connectToStudent(row.studentId, row.fullName);
+    } catch {
+      /* ignore */
+    }
+  };
+  socket.on("webrtc:push_student_ready", onStudentCamReady);
+
+  try {
+    const roster = await api(`/api/exam/room/${encodeURIComponent(roomId)}/students`);
+    for (const row of roster.students || []) {
+      await connectToStudent(row.studentId, row.fullName);
+    }
+    if (!(roster.students || []).length) {
+      container.innerHTML = '<p class="hint">No students in this room yet. When a student begins the exam, feeds appear automatically or use Refresh camera connections.</p>';
+    }
+  } catch (e) {
+    container.innerHTML = `<p class="hint">Camera roster error: ${escapeHtml(e.message || String(e))}</p>`;
+  }
+
+  viewerRtcTeardown = () => {
+    socket.off("webrtc:push_student_ready", onStudentCamReady);
+    webRtcViewerHandler = null;
+    for (const p of peers.values()) {
+      try {
+        p.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    peers.clear();
+    container.querySelectorAll("video").forEach((v) => {
+      v.srcObject = null;
+    });
+  };
 }
 
 function renderLogin() {
@@ -658,6 +880,13 @@ function logout() {
   }
   if (gatePoll) clearInterval(gatePoll);
   gatePoll = null;
+  studentWebRtcStop?.();
+  studentWebRtcStop = null;
+  viewerRtcTeardown?.();
+  viewerRtcTeardown = null;
+  webRtcStudentHandler = null;
+  webRtcViewerHandler = null;
+  lastCameraViewCtx = null;
   if (socket) {
     socket.disconnect();
     socket = null;
@@ -845,8 +1074,18 @@ function openObserve(roomId) {
   $("#modal-observe").classList.remove("hidden");
   const log = $("#observe-log");
   log.innerHTML = "";
+  const wall = $("#observe-video-wall");
+  if (wall) wall.innerHTML = "";
   const s = loadSession();
   socket.emit("room:join", { roomId, userId: s.userId, role: "admin" }, () => {});
+  if (wall) void startProctorViewCameras(roomId, s.userId, "admin", wall);
+  const obsRefBtn = $("#btn-observe-refresh-cam");
+  if (obsRefBtn) {
+    obsRefBtn.onclick = () => {
+      const w = $("#observe-video-wall");
+      if (w) void startProctorViewCameras(roomId, s.userId, "admin", w);
+    };
+  }
 
   const onRoster = (p) => {
     if (p.roomId !== roomId) return;
@@ -866,9 +1105,14 @@ function openObserve(roomId) {
   socket.on("integrity:event", onInt);
 
   $("#btn-close-observe").onclick = () => {
+    viewerRtcTeardown?.();
+    viewerRtcTeardown = null;
+    webRtcViewerHandler = null;
+    lastCameraViewCtx = null;
     socket.emit("room:leave", { roomId, userId: s.userId, role: "admin" });
     socket.off("room:roster", onRoster);
     socket.off("integrity:event", onInt);
+    if (wall) wall.innerHTML = "";
     $("#modal-observe").classList.add("hidden");
   };
 }
@@ -900,18 +1144,28 @@ async function refreshProctorMcqScores() {
 function bindProctor() {
   $("#btn-proctor-mcq-refresh")?.addEventListener("click", () => void refreshProctorMcqScores());
 
+  $("#btn-proctor-refresh-cam")?.addEventListener("click", () => {
+    const c = lastCameraViewCtx;
+    if (c?.container) void startProctorViewCameras(c.roomId, c.viewerUserId, c.role, c.container);
+  });
+
   $("#btn-proctor-join").onclick = async () => {
     const s = loadSession();
+    viewerRtcTeardown?.();
+    viewerRtcTeardown = null;
+    webRtcViewerHandler = null;
     let gate;
     try {
       gate = await api(`/api/gate?role=proctor&userId=${encodeURIComponent(s.userId)}`);
     } catch {
       $("#proctor-gate-line").textContent = "Could not read access rules.";
+      $("#proctor-cam-section")?.classList.add("hidden");
       return;
     }
     if (!gate.allowed) {
       $("#proctor-gate-line").textContent = "You cannot join yet. See the banner above.";
       $("#proctor-help-wrap").classList.add("hidden");
+      $("#proctor-cam-section")?.classList.add("hidden");
       return;
     }
     let place;
@@ -919,6 +1173,7 @@ function bindProctor() {
       place = await api(`/api/proctor/${encodeURIComponent(s.userId)}/room`);
     } catch (e) {
       $("#proctor-gate-line").textContent = e.message;
+      $("#proctor-cam-section")?.classList.add("hidden");
       return;
     }
     proctorRoomId = place.roomId;
@@ -926,6 +1181,10 @@ function bindProctor() {
     $("#proctor-status").textContent = `Joined ${place.roomName} (${place.roomId})`;
     $("#proctor-gate-line").textContent = "You are in the live window. Students can also enter now.";
     $("#proctor-help-wrap").classList.remove("hidden");
+    const camSection = $("#proctor-cam-section");
+    const camWall = $("#proctor-video-wall");
+    if (camSection) camSection.classList.remove("hidden");
+    if (camWall) void startProctorViewCameras(place.roomId, s.userId, "proctor", camWall);
 
     const log = $("#proctor-chat-log");
     log.innerHTML = "";
@@ -1171,13 +1430,28 @@ function bindStudent() {
       if (audioCtx?.state === "suspended") await audioCtx.resume();
     } catch {}
 
-    let paper;
+    studentWebRtcStop?.();
+    studentWebRtcStop = null;
+    if (v.srcObject) {
+      studentWebRtcStop = startStudentWebRtcPublisher(place.roomId, sid, v.srcObject);
+    }
+
+    let paperMeta;
     try {
-      paper = await api(`/api/student/${encodeURIComponent(sid)}/paper`);
+      paperMeta = await api(`/api/student/${encodeURIComponent(sid)}/paper`);
     } catch (e) {
       alert(e.message);
       return;
     }
+
+    let currentStep;
+    try {
+      currentStep = await api(`/api/student/${encodeURIComponent(sid)}/exam-current`);
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+
     if (studentExamCountdown) {
       clearInterval(studentExamCountdown);
       studentExamCountdown = null;
@@ -1190,7 +1464,7 @@ function bindStudent() {
 
     const area = $("#exam-area");
     area.innerHTML = "";
-    const endMs = new Date(paper.examEndAt).getTime();
+    const endMs = new Date(paperMeta.examEndAt).getTime();
     const timer = document.createElement("p");
     timer.className = "hint";
     area.appendChild(timer);
@@ -1229,6 +1503,8 @@ function bindStudent() {
       timer.textContent = `Time left until scheduled end: ${m}m ${sec}s`;
       if (left <= 0) {
         stopIntegrity();
+        studentWebRtcStop?.();
+        studentWebRtcStop = null;
         if (studentExamCountdown) {
           clearInterval(studentExamCountdown);
           studentExamCountdown = null;
@@ -1247,29 +1523,77 @@ function bindStudent() {
       $("#student-pm-body").value = "";
     };
 
-    paper.paper.forEach((q, idx) => {
+    const renderQuestionStep = (step) => {
+      while (area.children.length > 1) {
+        area.removeChild(area.lastChild);
+      }
+      if (step.completed) {
+        const done = document.createElement("p");
+        done.className = "hint";
+        done.innerHTML =
+          "<strong>Exam complete.</strong> You have finished this attempt and submitted every question. When the countdown reaches zero, your automatic MCQ summary may unlock below (if the paper has a key).";
+        area.appendChild(done);
+        return;
+      }
+      const isLast = step.total > 0 && step.index === step.total - 1;
+      const prog = document.createElement("p");
+      prog.className = "hint";
+      prog.innerHTML = isLast
+        ? `Final question (${step.index + 1} of ${step.total}). Choose one answer, then press <strong>Finish exam</strong> to end your attempt.`
+        : `Question ${step.index + 1} of ${step.total}. Choose one answer, then press <strong>Submit answer</strong> for the next question.`;
+      area.appendChild(prog);
+      const q = step.question;
       const box = document.createElement("div");
       box.className = "question panel";
       const p = document.createElement("p");
-      p.textContent = `${idx + 1}. ${q.text}`;
+      p.textContent = q.text;
       box.appendChild(p);
+      let selected = null;
+      const submitBtn = document.createElement("button");
+      submitBtn.type = "button";
+      submitBtn.textContent = isLast ? "Finish exam" : "Submit answer";
+      submitBtn.setAttribute("aria-label", isLast ? "Finish exam and submit your final answer" : "Submit answer and go to next question");
+      submitBtn.disabled = true;
       q.choices.forEach((ch, ci) => {
         const lab = document.createElement("label");
         const inp = document.createElement("input");
         inp.type = "radio";
-        inp.name = q.id;
-        inp.addEventListener("change", async () => {
-          await api(`/api/student/${encodeURIComponent(sid)}/answer`, {
-            method: "POST",
-            body: JSON.stringify({ questionId: q.id, choiceIndex: ci }),
-          });
+        inp.name = "seq-mcq-current";
+        inp.addEventListener("change", () => {
+          selected = ci;
+          submitBtn.disabled = false;
         });
         lab.appendChild(inp);
         lab.appendChild(document.createTextNode(ch));
         box.appendChild(lab);
       });
+      const submitRow = document.createElement("div");
+      submitRow.className = "row";
+      submitRow.style.marginTop = "0.75rem";
+      submitBtn.onclick = async () => {
+        if (selected == null) return;
+        submitBtn.disabled = true;
+        try {
+          const next = await api(`/api/student/${encodeURIComponent(sid)}/exam-submit`, {
+            method: "POST",
+            body: JSON.stringify({ questionId: q.id, choiceIndex: selected }),
+          });
+          if (next.completed) {
+            renderQuestionStep({ completed: true, total: next.total });
+          } else {
+            renderQuestionStep({ ...next, completed: false });
+          }
+        } catch (e) {
+          alert(e.message || String(e));
+          submitBtn.disabled = false;
+        }
+      };
+      submitRow.appendChild(submitBtn);
+      box.appendChild(submitRow);
       area.appendChild(box);
-    });
+    };
+
+    renderQuestionStep(currentStep);
   };
 }
 
