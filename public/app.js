@@ -403,6 +403,29 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
 
   webRtcViewerHandler = handler;
 
+  const onRoomRoster = (ev) => {
+    if (!ev || ev.roomId !== roomId) return;
+    if (ev.event !== "leave" || ev.role !== "student") return;
+    const sid = ev.userId;
+    const oldPc = peers.get(sid);
+    if (oldPc) {
+      try {
+        oldPc.close();
+      } catch {
+        /* ignore */
+      }
+      peers.delete(sid);
+    }
+    const tile = findVideoTile(container, sid);
+    if (tile) {
+      const v = tile.querySelector("video");
+      if (v) v.srcObject = null;
+      const st = tile.querySelector(".webrtc-status");
+      if (st) st.textContent = "Student left exam / camera off";
+    }
+  };
+  socket.on("room:roster", onRoomRoster);
+
   const connectToStudent = async (studentId, fullName) => {
     let wrap = findVideoTile(container, studentId);
     if (!wrap) {
@@ -433,6 +456,20 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
     pc.addTransceiver("audio", { direction: "recvonly" });
     pc.ontrack = (ev) => {
       if (ev.streams[0] && videoEl) videoEl.srcObject = ev.streams[0];
+      const tr = ev.track;
+      if (tr && typeof tr.addEventListener === "function") {
+        tr.addEventListener("ended", () => {
+          if (videoEl) videoEl.srcObject = null;
+          if (statusEl) statusEl.textContent = "Camera stopped (student finished or left)";
+        });
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      if (s === "failed" || s === "closed") {
+        if (videoEl) videoEl.srcObject = null;
+        if (statusEl) statusEl.textContent = "Connection closed";
+      }
     };
     relayIceCandidate(studentId, roomId, pc);
     const offer = await pc.createOffer();
@@ -466,6 +503,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
   }
 
   viewerRtcTeardown = () => {
+    socket.off("room:roster", onRoomRoster);
     socket.off("webrtc:push_student_ready", onStudentCamReady);
     webRtcViewerHandler = null;
     for (const p of peers.values()) {
@@ -730,6 +768,89 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Last loaded rows from /api/admin/results-report (for CSV download). */
+let liveReportRowsCache = null;
+
+function csvEscapeCell(val) {
+  const t = String(val ?? "");
+  if (/[",\r\n]/.test(t)) return `"${t.replace(/"/g, '""')}"`;
+  return t;
+}
+
+function buildResultsSummaryCsv(rows) {
+  const header = ["Student ID", "Full name", "Correct (keyed)", "Keyed questions", "Answered (keyed)", "Percent", "Model id", "Model label"];
+  const lines = [header.join(",")];
+  for (const row of rows || []) {
+    lines.push(
+      [
+        csvEscapeCell(row.studentId),
+        csvEscapeCell(row.fullName),
+        csvEscapeCell(row.correctCount ?? ""),
+        csvEscapeCell(row.questionsWithKey ?? ""),
+        csvEscapeCell(row.answeredWithKey ?? ""),
+        csvEscapeCell(row.percent == null ? "" : row.percent),
+        csvEscapeCell(row.modelId ?? ""),
+        csvEscapeCell(row.modelLabel ?? ""),
+      ].join(",")
+    );
+  }
+  return lines.join("\r\n");
+}
+
+function triggerDownloadText(filename, text, mime) {
+  const blob = new Blob([`\uFEFF${text}`], { type: mime || "text/csv;charset=utf-8" });
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = u;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(u);
+}
+
+/** @returns {Promise<boolean>} */
+function openStudentFinishExamModal() {
+  const backdrop = $("#student-finish-modal");
+  const cancelBtn = $("#btn-student-finish-cancel");
+  const confirmBtn = $("#btn-student-finish-confirm");
+  if (!backdrop || !cancelBtn || !confirmBtn) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      backdrop.classList.add("hidden");
+      backdrop.setAttribute("aria-hidden", "true");
+      cancelBtn.removeEventListener("click", onCancel);
+      confirmBtn.removeEventListener("click", onConfirm);
+      backdrop.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      resolve(v);
+    };
+    const onCancel = () => done(false);
+    const onConfirm = () => done(true);
+    const onBackdrop = (e) => {
+      if (e.target === backdrop) onCancel();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") onCancel();
+    };
+    cancelBtn.addEventListener("click", onCancel);
+    confirmBtn.addEventListener("click", onConfirm);
+    backdrop.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+    backdrop.classList.remove("hidden");
+    backdrop.setAttribute("aria-hidden", "false");
+    try {
+      confirmBtn.focus();
+    } catch {
+      /* ignore */
+    }
+  });
 }
 
 function escapeAttr(s) {
@@ -1134,25 +1255,50 @@ function bindLiveTab() {
     await refreshGateBanner();
   };
   $("#btn-live-results-report")?.addEventListener("click", async () => {
+    const meta = $("#live-results-meta");
+    const wrap = $("#live-results-table-wrap");
     const pre = $("#live-results-pre");
     const links = $("#live-evidence-links");
-    if (pre) pre.textContent = "Loading…";
+    const csvBtn = $("#btn-live-results-csv");
+    liveReportRowsCache = null;
+    if (csvBtn) csvBtn.disabled = true;
+    if (meta) meta.textContent = "Loading…";
+    if (wrap) wrap.innerHTML = "";
+    if (pre) pre.textContent = "";
     if (links) links.innerHTML = "";
     try {
       const r = await api("/api/admin/results-report");
+      const rows = r.studentRows || [];
+      liveReportRowsCache = rows;
+      if (csvBtn) csvBtn.disabled = rows.length === 0;
+      if (meta) {
+        meta.textContent = `Scheduled exam end: ${r.examEndAt || "—"} · Question model: ${r.selectedModelId || "—"} · Machine evidence files: ${(r.evidenceFiles || []).length}`;
+      }
+      if (wrap) {
+        if (!rows.length) {
+          wrap.innerHTML = '<p class="hint">No students in the roster.</p>';
+        } else {
+          const tbl = document.createElement("table");
+          tbl.className = "results-score-table";
+          tbl.innerHTML =
+            "<thead><tr><th>Student</th><th>Student ID</th><th>Correct</th><th>Keyed Qs</th><th>Answered</th><th>Percent</th></tr></thead><tbody></tbody>";
+          const tbody = tbl.querySelector("tbody");
+          for (const row of rows) {
+            const tr = document.createElement("tr");
+            const pct = row.percent == null ? "—" : `${row.percent}%`;
+            tr.innerHTML = `<td>${escapeHtml(row.fullName || "")}</td><td><code>${escapeHtml(row.studentId || "")}</code></td><td>${escapeHtml(
+              String(row.correctCount ?? "—")
+            )}</td><td>${escapeHtml(String(row.questionsWithKey ?? "—"))}</td><td>${escapeHtml(String(row.answeredWithKey ?? "—"))}</td><td>${escapeHtml(
+              pct
+            )}</td>`;
+            tbody.appendChild(tr);
+          }
+          wrap.innerHTML = "";
+          wrap.appendChild(tbl);
+        }
+      }
       if (pre) {
-        pre.textContent = JSON.stringify(
-          {
-            ok: r.ok,
-            examEndAt: r.examEndAt,
-            selectedModelId: r.selectedModelId,
-            evidenceDir: r.evidenceDir,
-            evidenceFileCount: (r.evidenceFiles || []).length,
-            studentRows: r.studentRows,
-          },
-          null,
-          2
-        );
+        pre.textContent = JSON.stringify(rows, null, 2);
       }
       if (links) {
         for (const f of r.evidenceFiles || []) {
@@ -1166,13 +1312,21 @@ function bindLiveTab() {
         if (!(r.evidenceFiles || []).length) {
           const p = document.createElement("p");
           p.className = "hint";
-          p.textContent = "No evidence files yet (students must submit answers on this server).";
+          p.textContent = "No JSONL evidence files yet (submissions on this server create them).";
           links.appendChild(p);
         }
       }
     } catch (e) {
-      if (pre) pre.textContent = e.message || String(e);
+      liveReportRowsCache = null;
+      if (csvBtn) csvBtn.disabled = true;
+      if (meta) meta.textContent = e.message || String(e);
+      if (pre) pre.textContent = "";
     }
+  });
+  $("#btn-live-results-csv")?.addEventListener("click", () => {
+    if (!liveReportRowsCache || !liveReportRowsCache.length) return;
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    triggerDownloadText(`exam-results-summary-${stamp}.csv`, buildResultsSummaryCsv(liveReportRowsCache));
   });
 }
 
@@ -1995,9 +2149,7 @@ function bindStudent() {
       submitBtn.onclick = async () => {
         if (selected == null) return;
         if (isLast) {
-          const ok = window.confirm(
-            "Are you sure you want to finish the exam? Your answers will be submitted, your camera and microphone will stop, and you will leave the exam room."
-          );
+          const ok = await openStudentFinishExamModal();
           if (!ok) return;
         }
         submitBtn.disabled = true;
@@ -2008,6 +2160,7 @@ function bindStudent() {
           });
           if (next.completed) {
             stopIntegrity();
+            socket?.emit("room:leave", { roomId: place.roomId, userId: sid, role: "student" });
             studentWebRtcStop?.();
             studentWebRtcStop = null;
             try {
@@ -2017,7 +2170,6 @@ function bindStudent() {
             } catch {
               /* ignore */
             }
-            socket?.emit("room:leave", { roomId: place.roomId, userId: sid, role: "student" });
             renderQuestionStep({ completed: true, total: next.total, leftRoom: true });
           } else {
             renderQuestionStep({ ...next, completed: false });

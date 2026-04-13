@@ -364,11 +364,21 @@
           <div class="panel">
             <h2>Results report &amp; answer evidence</h2>
             <p class="hint">
-              Loads automatic MCQ summaries for all students and lists JSONL evidence files (one per student: submitted answers and attempt summary). Use the links to download for audit.
+              <strong>Human-readable summary:</strong> load the table below, then use <strong>Download CSV summary</strong> for Excel or reports.
+              <strong>JSONL files</strong> are a technical, line-by-line audit format for systems — not meant to be read like a document.
             </p>
-            <button type="button" class="secondary" id="btn-live-results-report">Load report &amp; evidence list</button>
-            <pre id="live-results-pre" class="log" style="max-height: 220px; overflow: auto; margin-top: 0.5rem"></pre>
-            <div id="live-evidence-links" class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem"></div>
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem">
+              <button type="button" class="secondary" id="btn-live-results-report">Load results table</button>
+              <button type="button" class="secondary" id="btn-live-results-csv" disabled>Download CSV summary</button>
+            </div>
+            <p id="live-results-meta" class="hint" style="margin-top: 0.5rem"></p>
+            <div id="live-results-table-wrap" class="table-scroll" style="margin-top: 0.5rem"></div>
+            <details class="panel" style="margin-top: 0.75rem">
+              <summary>Technical JSON (optional)</summary>
+              <pre id="live-results-pre" class="log" style="max-height: 180px; overflow: auto; margin-top: 0.5rem"></pre>
+            </details>
+            <p class="hint" style="margin-top: 0.75rem">Detailed per-answer evidence (JSON Lines, for IT / integrations):</p>
+            <div id="live-evidence-links" class="row" style="flex-wrap: wrap; gap: 0.5rem"></div>
           </div>
           <div class="panel">
             <h2>Automatic MCQ results (selected paper)</h2>
@@ -400,8 +410,11 @@
             </table>
           </div>
           <div class="panel">
-            <h2>Audit log (recent)</h2>
-            <p class="hint">Tamper-evident storage would use a database or append-only log in production. This trial keeps the last events in memory.</p>
+            <h2>Activity log (administration, trial)</h2>
+            <p class="hint">
+              <strong>What this is:</strong> a short list of recent actions (publish exam, admit student, seed data, …). In this demo it lives <strong>in server memory only</strong> and is not a legal archive.
+              <span dir="rtl" style="display: block; margin-top: 0.35rem">سجل تجريبي للأحداث الأخيرة في الذاكرة فقط — ليس أرشيفاً رسمياً.</span>
+            </p>
             <div id="live-audit-log" class="log" style="max-height: 220px"></div>
           </div>
           <div class="grid grid-2">
@@ -410,7 +423,11 @@
               <div id="live-incidents" class="log"></div>
             </div>
             <div class="panel">
-              <h2>Integrity feed (demo)</h2>
+              <h2>Integrity alerts (trial demo)</h2>
+              <p class="hint" style="margin-top: 0">
+                Simple motion/audio heuristics from the browser (not certified proctoring). For trials only.
+                <span dir="rtl" style="display: block; margin-top: 0.35rem">تنبيهات تجريبية من الكاميرا/الصوت — ليست مراقبة معتمدة.</span>
+              </p>
               <div id="live-integrity" class="log"></div>
             </div>
           </div>
@@ -485,7 +502,7 @@
             <div class="row" style="margin-top: 0.75rem">
               <label>
                 Private message to Student ID
-                <input id="pm-to" type="text" placeholder="S0001" />
+                <input id="pm-to" type="text" placeholder="Student-1" />
               </label>
               <label style="flex: 1">
                 Message
@@ -579,6 +596,21 @@
                 </div>
                 <div id="exam-area" style="margin-top: 1rem"></div>
                 <div id="student-mcq-result" class="panel hidden" style="margin-top: 0.75rem"></div>
+              </div>
+            </div>
+            <div id="student-finish-modal" class="modal-backdrop hidden" aria-hidden="true">
+              <div class="modal" role="dialog" aria-modal="true" aria-labelledby="student-finish-modal-title">
+                <h3 id="student-finish-modal-title">Finish this exam attempt?</h3>
+                <p>
+                  Your answers will be submitted, your camera and microphone will stop for this session, and you will leave the exam room in the app.
+                </p>
+                <p class="hint" dir="rtl" style="margin-top: 0.5rem">
+                  سيتم إرسال إجاباتك، وإيقاف الكاميرا والميكروفون، ومغادرة غرفة الامتحان داخل التطبيق.
+                </p>
+                <div class="row" style="margin-top: 1rem; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap">
+                  <button type="button" class="secondary" id="btn-student-finish-cancel">Cancel / إلغاء</button>
+                  <button type="button" class="warn" id="btn-student-finish-confirm">Yes, finish exam / نعم، إنهاء</button>
+                </div>
               </div>
             </div>
           </div>

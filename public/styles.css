@@ -60,6 +60,31 @@ a {
   }
 }
 
+.table-scroll {
+  overflow-x: auto;
+}
+
+table.results-score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+table.results-score-table th,
+table.results-score-table td {
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+
+table.results-score-table thead {
+  background: var(--card2);
+}
+
+table.results-score-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 a.template-dl {
   display: inline-flex;
   align-items: center;
