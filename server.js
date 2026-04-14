@@ -24,7 +24,7 @@ const PLATFORM_SHIPPED = [
   { id: "publish", label: "Publish with proctor validation" },
   { id: "lobby_gate", label: "Lobby window & time-based access (student / proctor)" },
   { id: "live_control", label: "Live control: extend end, open lobby (testing), rooms, incidents, integrity tail" },
-  { id: "proctor_desk", label: "Proctor desk: join room, private messages, live progress (no scores), teacher upload" },
+  { id: "proctor_desk", label: "Proctor desk: join room, private messages, live progress (no scores)" },
   { id: "student_desk", label: "Student desk: camera/mic consent, integrity policy acknowledgement, paper, timer" },
   { id: "mcq_auto", label: "Automatic MCQ scoring (per-student choice shuffle)" },
   { id: "item_analysis", label: "Item analysis (% correct per keyed question)" },
