@@ -2602,9 +2602,9 @@ function bindStudent() {
           selected = ci;
           submitBtn.disabled = false;
         });
+        row.appendChild(inp);
         row.appendChild(num);
         row.appendChild(txt);
-        row.appendChild(inp);
         box.appendChild(row);
       });
       const submitRow = document.createElement("div");

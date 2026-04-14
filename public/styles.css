@@ -876,12 +876,13 @@ summary:focus-visible {
 label.student-exam-choice-row {
   display: flex;
   flex-direction: row;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin: 8px 0;
-  margin-left: auto;
-  width: min(100%, 26rem);
+  margin-left: 0;
+  margin-right: 0;
+  width: 100%;
   max-width: 100%;
   padding: clamp(6px, 1.2vw, 10px) clamp(10px, 2vw, 16px);
   border: 1px solid #e2e8f0;
@@ -905,10 +906,11 @@ label.student-exam-choice-row:focus-within {
 }
 
 .student-exam-choice-text {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: clamp(0.95rem, 2vw, 1.05rem);
   color: #0f172a;
-  text-align: right;
+  text-align: left;
 }
 
 .student-exam-wire-main label.student-exam-choice-row input[type="radio"] {
@@ -923,9 +925,8 @@ label.student-exam-choice-row:focus-within {
   display: flex;
   justify-content: flex-end;
   margin-top: 14px;
-  width: min(100%, 26rem);
+  width: 100%;
   max-width: 100%;
-  margin-left: auto;
 }
 
 .student-exam-q-actions .row {
