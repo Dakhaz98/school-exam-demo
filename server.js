@@ -652,7 +652,7 @@ function runSeedAisTrialScenario() {
   state.uploadedQuestionModels = state.uploadedQuestionModels.filter((m) => m.id !== AIS_TRIAL_MODEL_ID);
   state.uploadedQuestionModels.push({
     id: AIS_TRIAL_MODEL_ID,
-    label: "Trial paper (10 MCQ; replace via teacher upload if you wish)",
+    label: "Trial paper (10 MCQ)",
     questions: aisTrialQuestionList(),
     uploadedAt: new Date().toISOString(),
     uploadedByStaffId: teachers[0].staffId,
