@@ -658,6 +658,22 @@ summary:focus-visible {
   padding-right: clamp(0.35rem, 2vw, 1rem);
 }
 
+/* Proctor desk: same main horizontal bleed + tab gutters as student live exam */
+#main-content:has(#view-app:not(.hidden) section[data-tab="proctor"]:not(.hidden)) {
+  max-width: none;
+  width: 100%;
+  margin: 0 auto;
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 1.25rem;
+  padding-bottom: 2.5rem;
+}
+
+#main-content:has(#view-app:not(.hidden) section[data-tab="proctor"]:not(.hidden)) #view-app .tabs {
+  padding-left: clamp(0.35rem, 2vw, 1rem);
+  padding-right: clamp(0.35rem, 2vw, 1rem);
+}
+
 .student-exam-wire-toprow {
   display: grid;
   grid-template-columns: minmax(120px, min(220px, 26vw)) 1fr;
@@ -940,7 +956,8 @@ label.student-exam-choice-row:focus-within {
   box-sizing: border-box;
   min-height: min(70vh, 920px);
   margin: 0;
-  padding: 1.25rem 1.35rem 1.5rem;
+  /* Match .student-exam-wire outer padding (responsive gutters) */
+  padding: clamp(8px, 1.8vw, 14px) clamp(6px, 1.2vw, 12px);
   border-radius: 14px;
   background: linear-gradient(165deg, #0f172a 0%, #1e293b 42%, #0f172a 100%);
   border: 1px solid #334155;
@@ -981,14 +998,15 @@ label.student-exam-choice-row:focus-within {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 1rem 1.25rem;
-  margin-bottom: 1.1rem;
+  gap: clamp(8px, 1.8vw, 14px) clamp(10px, 2vw, 18px);
+  margin-bottom: clamp(8px, 1.8vw, 14px);
 }
 
 .proctor-access-card {
   flex: 1 1 320px;
   min-width: 0;
-  padding: 1rem 1.15rem 1.1rem;
+  /* Match .student-exam-q-card */
+  padding: clamp(12px, 2vw, 16px) clamp(12px, 2.2vw, 18px);
   border-radius: 12px;
   background: #1e293b;
   border: 1px solid #475569;
@@ -1003,7 +1021,7 @@ label.student-exam-choice-row:focus-within {
 }
 
 .proctor-join-row {
-  margin-top: 1rem;
+  margin-top: clamp(10px, 2vw, 16px);
 }
 
 .proctor-header-util {
@@ -1062,7 +1080,7 @@ label.student-exam-choice-row:focus-within {
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 1rem;
+  gap: clamp(8px, 1.8vw, 14px);
   min-height: 0;
 }
 
@@ -1071,7 +1089,7 @@ label.student-exam-choice-row:focus-within {
   width: min(100%, 300px);
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: clamp(8px, 1.8vw, 14px);
 }
 
 .proctor-desk-main {
@@ -1079,11 +1097,12 @@ label.student-exam-choice-row:focus-within {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: clamp(8px, 1.8vw, 14px);
 }
 
 .proctor-sidebar-card {
-  padding: 0.9rem 1rem;
+  /* Match .student-exam-q-card */
+  padding: clamp(12px, 2vw, 16px) clamp(12px, 2.2vw, 18px);
   border-radius: 12px;
   background: #1e293b;
   border: 1px solid #475569;
@@ -1111,7 +1130,7 @@ label.student-exam-choice-row:focus-within {
 
 .proctor-btn-release-paper {
   width: 100%;
-  padding: 0.85rem 1rem;
+  padding: clamp(10px, 1.6vw, 14px) clamp(12px, 2vw, 16px);
   font-size: 1.05rem;
   font-weight: 800;
   border: none;
@@ -1147,7 +1166,7 @@ label.student-exam-choice-row:focus-within {
 
 .proctor-desk-table th,
 .proctor-desk-table td {
-  padding: 0.45rem 0.55rem;
+  padding: clamp(6px, 1.2vw, 10px) clamp(8px, 1.5vw, 14px);
   text-align: left;
   border-bottom: 1px solid #334155;
   vertical-align: middle;
@@ -1182,7 +1201,7 @@ label.student-exam-choice-row:focus-within {
 }
 
 .proctor-desk-room .proctor-pm-label input {
-  padding: 0.45rem 0.55rem;
+  padding: clamp(6px, 1.2vw, 10px) clamp(8px, 1.5vw, 12px);
   border-radius: 8px;
   border: 1px solid #64748b;
   background: #0f172a;
@@ -1202,6 +1221,7 @@ label.student-exam-choice-row:focus-within {
 .proctor-chat-log {
   max-height: 160px;
   margin-top: 0.35rem;
+  padding: clamp(8px, 1.2vw, 12px);
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
@@ -1210,7 +1230,8 @@ label.student-exam-choice-row:focus-within {
 .proctor-cam-zone {
   flex: 1 1 auto;
   min-height: 220px;
-  padding: 0.85rem 1rem 1rem;
+  /* Match .student-exam-wire-main */
+  padding: clamp(12px, 2vw, 18px) clamp(12px, 2.5vw, 22px) clamp(14px, 2.5vw, 22px);
   border-radius: 12px;
   background: #1e293b;
   border: 1px solid #475569;
@@ -1221,8 +1242,8 @@ label.student-exam-choice-row:focus-within {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 1rem;
-  margin-bottom: 0.65rem;
+  gap: clamp(6px, 1.2vw, 10px) clamp(8px, 1.8vw, 14px);
+  margin-bottom: clamp(6px, 1.2vw, 12px);
 }
 
 .proctor-cam-capacity-hint {
@@ -1234,7 +1255,7 @@ label.student-exam-choice-row:focus-within {
 .proctor-video-wall {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.65rem;
+  gap: clamp(8px, 1.5vw, 12px);
   align-items: start;
   min-height: 180px;
 }
@@ -1261,6 +1282,7 @@ label.student-exam-choice-row:focus-within {
   background: #f8fafc;
   border: 1px solid #cbd5e1;
   color: #0f172a;
+  padding: clamp(6px, 1.2vw, 10px) clamp(8px, 1.5vw, 12px);
 }
 
 .proctor-desk-room .video-tile-label {
@@ -1272,7 +1294,8 @@ label.student-exam-choice-row:focus-within {
 }
 
 .proctor-progress-dock {
-  padding: 0.9rem 1rem 1rem;
+  /* Match .student-exam-q-card */
+  padding: clamp(12px, 2vw, 16px) clamp(12px, 2.2vw, 18px);
   border-radius: 12px;
   background: #1e293b;
   border: 1px solid #475569;
