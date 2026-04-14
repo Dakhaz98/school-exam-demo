@@ -481,32 +481,6 @@
 
         <section data-tab="proctor" class="hidden">
           <div class="panel">
-            <h2>Question paper (teacher)</h2>
-            <p class="hint">
-              Upload uses the same secure upload channel as administration; your Staff ID is attached so the paper is credited to you. You must be logged in as Teacher / proctor. After upload,
-              administration can confirm the selected model under <strong>Create exam</strong> if the exam is not yet final.
-            </p>
-            <p class="hint">
-              <strong>Same Excel rules as administration:</strong> first sheet; columns <code>Question ID</code> (optional),
-              <code>Question Text</code>, <code>Choice A</code>–<code>Choice D</code>, optional <code>Correct</code> for auto-scoring; minimum two choices per row; multiple choice only.
-            </p>
-            <p class="hint">
-              <a class="template-dl" href="/api/admin/template/questions" download="question_paper_template.xlsx">Download question template</a>
-            </p>
-            <div class="row" style="align-items: center; flex-wrap: wrap; gap: 0.5rem">
-              <label>
-                Optional label
-                <input id="teacher-q-model-label" type="text" placeholder="e.g. Unit 2 revision" style="min-width: 11rem" />
-              </label>
-              <label>
-                Question file (.xlsx)
-                <input id="file-teacher-questions" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
-              </label>
-              <button type="button" class="secondary" id="btn-teacher-upload-questions">Upload my questions</button>
-            </div>
-            <p class="hint" id="teacher-upload-questions-result"></p>
-          </div>
-          <div class="panel">
             <h2>Access status</h2>
             <p id="proctor-gate-line" class="hint"></p>
             <div class="row">

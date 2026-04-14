@@ -2115,33 +2115,6 @@ function bindProctor() {
       "Broadcasting your microphone to all students at once is not implemented in this trial build. Use per-student “Unmute / listen”, private messages, or administration support."
     );
   });
-
-  const tqInp = $("#file-teacher-questions");
-  const tqBtn = $("#btn-teacher-upload-questions");
-  if (tqBtn && tqInp) {
-    tqBtn.onclick = async () => {
-      const s = loadSession();
-      if (!s || s.role !== "proctor") {
-        alert("Log in as Teacher / proctor first, then open this tab again.");
-        return;
-      }
-      if (!tqInp.files?.[0]) return alert("Choose a question Excel file first.");
-      const fd = new FormData();
-      fd.append("file", tqInp.files[0]);
-      fd.append("staffId", s.userId);
-      const labEl = $("#teacher-q-model-label");
-      const label = (labEl && labEl.value.trim()) || "";
-      if (label) fd.append("modelLabel", label);
-      try {
-        const r = await apiForm("/api/admin/upload/question-model", fd);
-        const msg = $("#teacher-upload-questions-result");
-        if (msg) msg.textContent = `Uploaded ${r.questionCount} questions. Model id: ${r.modelId}. Administration should confirm the selected model in Create exam if needed.`;
-        tqInp.value = "";
-      } catch (e) {
-        alert(e.message);
-      }
-    };
-  }
 }
 
 function stopIntegrity() {
