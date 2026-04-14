@@ -71,6 +71,10 @@ async function finalizeStudentExamRevokedUi(studentId, place) {
   $("#student-wait-lounge")?.classList.add("hidden");
   $("#student-preexam-block")?.classList.remove("hidden");
   $("#student-exam-ended-overlay")?.classList.remove("hidden");
+  $("#view-app")?.classList.remove("student-exam-layout-active");
+  $("#student-desk-chrome")?.classList.remove("hidden");
+  const tb = $("#student-exam-timer-bar");
+  if (tb) tb.innerHTML = "";
 }
 
 function attachStudentExamLeaveProtection(studentId, place) {
@@ -1264,6 +1268,8 @@ async function enterApp() {
         if (st.examRevoked) {
           $("#student-after-consent")?.classList.remove("hidden");
           $("#student-exam-ended-overlay")?.classList.remove("hidden");
+          $("#view-app")?.classList.remove("student-exam-layout-active");
+          $("#student-desk-chrome")?.classList.remove("hidden");
         }
       } catch {
         /* ignore */
@@ -1292,6 +1298,8 @@ function logout() {
   proctorRoomId = null;
   $("#btn-proctor-join")?.classList.remove("hidden");
   $("#proctor-room-heading")?.classList.add("hidden");
+  $("#view-app")?.classList.remove("student-exam-layout-active");
+  $("#student-desk-chrome")?.classList.remove("hidden");
   clearProctorWaitlistPoll();
   clearStudentEntryPollTimer();
   if (studentExamCountdown) {
@@ -2419,6 +2427,8 @@ function bindStudent() {
     }
     lounge?.classList.add("hidden");
     workspace?.classList.remove("hidden");
+    $("#view-app")?.classList.add("student-exam-layout-active");
+    $("#student-desk-chrome")?.classList.add("hidden");
     moveStudentVideoToPip();
     $("#student-room-label").textContent = `${place.roomName} (${place.roomId}) — exam in progress`;
     await showStudentExamLockGateModal();
@@ -2472,10 +2482,16 @@ function bindStudent() {
 
     const area = $("#exam-area");
     area.innerHTML = "";
+    const timerBar = $("#student-exam-timer-bar");
+    if (timerBar) timerBar.innerHTML = "";
     const endMs = new Date(paperMeta.examEndAt).getTime();
     const timer = document.createElement("p");
-    timer.className = "hint";
-    area.appendChild(timer);
+    timer.className = "student-exam-wire-timer-text";
+    if (timerBar) timerBar.appendChild(timer);
+    else {
+      timer.className = "hint";
+      area.appendChild(timer);
+    }
     let mcqSummaryRequested = false;
     const fetchStudentMcqSummary = async () => {
       if (mcqSummaryRequested) return;
@@ -2532,8 +2548,8 @@ function bindStudent() {
     };
 
     const renderQuestionStep = (step) => {
-      while (area.children.length > 1) {
-        area.removeChild(area.lastChild);
+      while (area.firstChild) {
+        area.removeChild(area.firstChild);
       }
       if (step.completed) {
         const done = document.createElement("p");
@@ -2546,7 +2562,7 @@ function bindStudent() {
       }
       const isLast = step.total > 0 && step.index === step.total - 1;
       const prog = document.createElement("p");
-      prog.className = "hint";
+      prog.className = "student-exam-wire-instruction";
       prog.innerHTML = isLast
         ? `Final question (${step.index + 1} of ${step.total}). Choose one answer, then press <strong>Finish exam</strong> to end your attempt.`
         : `Question ${step.index + 1} of ${step.total}. Choose one answer, then press <strong>Submit answer</strong> for the next question.`;
@@ -2565,6 +2581,11 @@ function bindStudent() {
       submitBtn.setAttribute("aria-label", isLast ? "Finish exam and submit your final answer" : "Submit answer and go to next question");
       submitBtn.disabled = true;
       q.choices.forEach((ch, ci) => {
+        const row = document.createElement("div");
+        row.className = "student-exam-choice-row";
+        const num = document.createElement("span");
+        num.className = "student-exam-choice-num";
+        num.textContent = String(ci + 1);
         const lab = document.createElement("label");
         const inp = document.createElement("input");
         inp.type = "radio";
@@ -2575,11 +2596,17 @@ function bindStudent() {
         });
         lab.appendChild(inp);
         lab.appendChild(document.createTextNode(ch));
-        box.appendChild(lab);
+        row.appendChild(num);
+        row.appendChild(lab);
+        row.addEventListener("click", (ev) => {
+          if (ev.target instanceof HTMLInputElement && ev.target.type === "radio") return;
+          inp.checked = true;
+          inp.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        box.appendChild(row);
       });
       const submitRow = document.createElement("div");
-      submitRow.className = "row";
-      submitRow.style.marginTop = "0.75rem";
+      submitRow.className = "student-exam-q-actions";
       submitBtn.onclick = async () => {
         if (selected == null) return;
         if (isLast) {

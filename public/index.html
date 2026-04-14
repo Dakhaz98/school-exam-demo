@@ -613,13 +613,15 @@
               <button type="button" id="btn-consent">Allow camera and microphone</button>
             </div>
           </div>
-          <div class="panel">
-            <h2>Student desk</h2>
-            <p class="hint" style="margin-bottom: 0.5rem">
-              Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. You will first see a <strong>waiting area</strong> while you are transferred to the exam room; your teacher must <strong>admit</strong> you and <strong>release the paper</strong> before any question appears. If the link is not open yet, wait for the lobby window or ask administration to use
-              <strong>Open lobby now (testing)</strong> on the Live control tab.
-            </p>
-            <p id="student-gate-line" class="hint"></p>
+          <div class="panel" id="student-desk-panel">
+            <div id="student-desk-chrome">
+              <h2>Student desk</h2>
+              <p class="hint" style="margin-bottom: 0.5rem">
+                Steps: allow the camera, read the integrity rules, tick the agreement, then begin the exam. You will first see a <strong>waiting area</strong> while you are transferred to the exam room; your teacher must <strong>admit</strong> you and <strong>release the paper</strong> before any question appears. If the link is not open yet, wait for the lobby window or ask administration to use
+                <strong>Open lobby now (testing)</strong> on the Live control tab.
+              </p>
+              <p id="student-gate-line" class="hint"></p>
+            </div>
             <div id="student-video-home">
               <div class="video-wrap">
                 <video id="student-video" autoplay playsinline muted></video>
@@ -671,39 +673,44 @@
                     </div>
                   </div>
                 </div>
-                <div class="student-exam-shell">
-                  <header class="student-exam-top">
-                    <div class="student-exam-top-text">
+                <div class="student-exam-shell student-exam-wire">
+                  <div class="student-exam-wire-toprow">
+                    <div class="student-exam-wire-pip-host">
+                      <aside id="student-exam-pip-slot" class="student-exam-pip" aria-label="Your camera preview"></aside>
+                    </div>
+                    <div class="student-exam-wire-head">
                       <h1 id="student-exam-heading" class="student-exam-heading"></h1>
                       <p id="student-room-label" class="student-exam-roomline"></p>
                     </div>
-                  </header>
-                  <aside id="student-exam-pip-slot" class="student-exam-pip" aria-label="Your camera preview"></aside>
-                  <div class="student-exam-warn" role="alert">
+                  </div>
+                  <div class="student-exam-warn student-exam-wire-warn" role="alert">
                     Do not leave this page, open another tab, or use another browser during the exam. If you do, your attempt may end immediately and your answers will be saved as submitted.
                   </div>
-                  <div class="student-exam-body">
-                    <div class="student-exam-main">
-                      <div id="exam-area"></div>
-                      <div id="student-mcq-result" class="panel hidden" style="margin-top: 1rem"></div>
-                    </div>
-                    <details class="student-exam-pm-drawer panel">
-                      <summary class="student-exam-pm-summary">Private messages to staff (click to expand)</summary>
-                      <div class="student-exam-pm-inner">
-                        <div id="student-pm-log" class="log" style="max-height: 160px"></div>
-                        <div class="row" style="margin-top: 0.5rem; flex-wrap: wrap">
-                          <label>
-                            Staff ID to reply
-                            <input id="student-pm-to" type="text" placeholder="teacher-1" />
-                          </label>
-                          <label style="flex: 1; min-width: 10rem">
-                            Message
-                            <input id="student-pm-body" type="text" />
-                          </label>
-                          <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                  <div id="student-exam-timer-bar" class="student-exam-wire-timer" aria-live="polite"></div>
+                  <div class="student-exam-wire-columns">
+                    <aside class="student-exam-wire-sidebar">
+                      <details class="student-exam-pm-drawer panel">
+                        <summary class="student-exam-pm-summary">Private messages to staff (click to expand)</summary>
+                        <div class="student-exam-pm-inner">
+                          <div id="student-pm-log" class="log" style="max-height: 160px"></div>
+                          <div class="row" style="margin-top: 0.5rem; flex-wrap: wrap">
+                            <label>
+                              Staff ID to reply
+                              <input id="student-pm-to" type="text" placeholder="teacher-1" />
+                            </label>
+                            <label style="flex: 1; min-width: 10rem">
+                              Message
+                              <input id="student-pm-body" type="text" />
+                            </label>
+                            <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                          </div>
                         </div>
-                      </div>
-                    </details>
+                      </details>
+                    </aside>
+                    <div class="student-exam-wire-main">
+                      <div id="exam-area" class="student-exam-wire-exam-area"></div>
+                      <div id="student-mcq-result" class="panel hidden student-exam-wire-mcq" style="margin-top: 1rem"></div>
+                    </div>
                   </div>
                 </div>
               </div>
