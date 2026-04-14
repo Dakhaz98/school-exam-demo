@@ -659,19 +659,25 @@ summary:focus-visible {
 }
 
 /* Proctor desk: same main horizontal bleed + tab gutters as student live exam */
-#main-content:has(#view-app:not(.hidden) section[data-tab="proctor"]:not(.hidden)) {
+/* Set by showTab("proctor") — same as student bleed, do not use :has() */
+#main-content.proctor-desk-main-bleed {
   max-width: none;
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
   padding-left: 0;
   padding-right: 0;
   padding-top: 1.25rem;
   padding-bottom: 2.5rem;
 }
 
-#main-content:has(#view-app:not(.hidden) section[data-tab="proctor"]:not(.hidden)) #view-app .tabs {
+#view-app.proctor-desk-layout-active .tabs {
   padding-left: clamp(0.35rem, 2vw, 1rem);
   padding-right: clamp(0.35rem, 2vw, 1rem);
+}
+
+#view-app.proctor-desk-layout-active section[data-tab="proctor"] {
+  max-width: none;
+  width: 100%;
 }
 
 .student-exam-wire-toprow {

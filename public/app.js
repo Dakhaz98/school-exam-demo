@@ -31,6 +31,12 @@ function setStudentExamFullBleed(active) {
   $("#main-content")?.classList.toggle("student-exam-main-bleed", !!active);
 }
 
+/** Proctor desk: same pattern as student — do not rely on :has() for main width (browser / cache issues). */
+function setProctorDeskFullBleed(active) {
+  $("#view-app")?.classList.toggle("proctor-desk-layout-active", !!active);
+  $("#main-content")?.classList.toggle("proctor-desk-main-bleed", !!active);
+}
+
 function restoreStudentVideoHome() {
   const pip = $("#student-exam-pip-slot");
   const home = $("#student-video-home");
@@ -786,6 +792,7 @@ function showTab(name) {
     btn.classList.toggle("secondary", !on);
     btn.setAttribute("aria-selected", on ? "true" : "false");
   });
+  setProctorDeskFullBleed(name === "proctor");
   if (name === "admin" || name === "exam" || name === "live" || name === "proctor" || name === "student") {
     const main = $("#main-content");
     if (main) {
@@ -1308,6 +1315,7 @@ function logout() {
   $("#proctor-admit-panel")?.classList.add("hidden");
   $("#proctor-cam-section")?.classList.add("hidden");
   setStudentExamFullBleed(false);
+  setProctorDeskFullBleed(false);
   $("#student-desk-chrome")?.classList.remove("hidden");
   clearProctorWaitlistPoll();
   clearStudentEntryPollTimer();
