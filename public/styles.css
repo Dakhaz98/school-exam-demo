@@ -666,13 +666,19 @@ summary:focus-visible {
   margin: 0;
   padding-left: 0;
   padding-right: 0;
-  padding-top: 1.25rem;
+  /* Pull workspace up under sticky header — hero + tabs sit tight below banner */
+  padding-top: 0.35rem;
   padding-bottom: 2.5rem;
+}
+
+#main-content.proctor-desk-main-bleed .hero-strip {
+  margin-bottom: 0.4rem;
 }
 
 #view-app.proctor-desk-layout-active .tabs {
   padding-left: clamp(0.35rem, 2vw, 1rem);
   padding-right: clamp(0.35rem, 2vw, 1rem);
+  margin-bottom: 0.4rem;
 }
 
 #view-app.proctor-desk-layout-active section[data-tab="proctor"] {
