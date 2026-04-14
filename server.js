@@ -401,6 +401,8 @@ const state = {
   incidents: [],
   /** @type {Record<string, string>} studentId -> none | pending | admitted */
   studentEntryStatus: {},
+  /** @type {Record<string, { at: string, reason: string }>} studentId -> revoked (cannot continue this exam) */
+  studentExamRevoked: {},
   /** @type {Record<string, boolean>} roomId -> paper released to students */
   roomPaperReleased: {},
   /** When non-empty, student APIs require header X-Exam-Access-Key to match (set via admin). */
@@ -449,6 +451,7 @@ function appendAudit(action, detail = "", meta = {}) {
 function clearIssuedPapers() {
   state.studentPaperSets = {};
   state.studentPaperCursor = {};
+  state.studentExamRevoked = {};
 }
 
 function resetStudentExamRuntimeFlags() {
@@ -834,6 +837,7 @@ function finalizeExamAttemptEvidence(studentId) {
 /** Reset per-room paper lock and student admission (call after publish, layout, or seeded exams). */
 function resetExamAdmissionState() {
   state.studentEntryStatus = {};
+  state.studentExamRevoked = {};
   ensureRoomsBuilt();
   state.roomPaperReleased = {};
   for (const r of state.examSession.rooms) {
@@ -897,6 +901,17 @@ function readExamAccessKeyHeader(req) {
 function gateHonestyModelForStudent(sid, req) {
   const g = gateFor("student", sid, req);
   if (!g.allowed) return { err: 403, body: { error: g.reason, gate: g } };
+  if (state.studentExamRevoked[sid]) {
+    return {
+      err: 403,
+      body: {
+        error: "exam_revoked",
+        message:
+          "This exam attempt was ended because the exam tab was closed or refreshed. You cannot continue this exam session. Contact your proctor if this was a mistake.",
+        gate: g,
+      },
+    };
+  }
   if (!state.studentHonestyAck[sid]) {
     return {
       err: 403,
@@ -1681,6 +1696,12 @@ app.get("/api/proctor/:staffId/room", (req, res) => {
 app.post("/api/student/:studentId/request-entry", (req, res) => {
   const sid = req.params.studentId;
   if (!studentById(sid)) return res.status(404).json({ error: "Unknown student." });
+  if (state.studentExamRevoked[sid]) {
+    return res.status(403).json({
+      error: "exam_revoked",
+      message: "This exam attempt was ended. You cannot re-enter this exam session.",
+    });
+  }
   const g = gateFor("student", sid, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   if (!state.examSession.published) return res.status(403).json({ error: "Exam is not published yet." });
@@ -1871,6 +1892,32 @@ app.get("/api/student/:studentId/exam-current", (req, res) => {
     examEndAt: ex.examEndAt,
     gate: init.g,
   });
+});
+
+app.post("/api/student/:studentId/exam-revoke", (req, res) => {
+  const sid = req.params.studentId;
+  if (!studentById(sid)) return res.status(404).json({ error: "Unknown student." });
+  const g = gateFor("student", sid, req);
+  if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
+  if (state.studentExamRevoked[sid]) {
+    return res.json({ ok: true, already: true });
+  }
+  const order = state.studentPaperSets[sid];
+  if (!order || !order.length) {
+    return res.status(400).json({ error: "No exam paper is active for this student." });
+  }
+  state.studentExamRevoked[sid] = { at: new Date().toISOString(), reason: String(req.body?.reason || "leave_or_close") };
+  state.studentPaperCursor[sid] = order.length;
+  finalizeExamAttemptEvidence(sid);
+  writeExamEvidenceLine(sid, { type: "exam_revoked", reason: state.studentExamRevoked[sid].reason });
+  appendAudit("student_exam_revoked", `student ${sid}`, { actorRole: "student", actorId: sid });
+  try {
+    sqliteStore.persistCoreNow(state);
+  } catch (e) {
+    logger.logError("persist after exam-revoke", e);
+  }
+  broadcastState();
+  res.json({ ok: true });
 });
 
 app.post("/api/student/:studentId/exam-submit", (req, res) => {

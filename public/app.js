@@ -20,6 +20,55 @@ let proctorWaitlistTimer = null;
 let studentEntryPollTimer = null;
 /** @type {null | (() => void)} */
 let studentTabVisibilityCleanup = null;
+/** @type {null | (() => void)} */
+let studentExamLeaveGuardCleanup = null;
+
+function attachStudentExamLeaveProtection(studentId) {
+  studentExamLeaveGuardCleanup?.();
+  let active = true;
+  const beforeUnload = (e) => {
+    e.preventDefault();
+    e.returnValue = "";
+  };
+  const pageHide = (ev) => {
+    if (!active || ev.persisted) return;
+    try {
+      void fetch(apiUrl(`/api/student/${encodeURIComponent(studentId)}/exam-revoke`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...studentExamKeyHeaders() },
+        body: JSON.stringify({ reason: "leave_or_close" }),
+        keepalive: true,
+      });
+    } catch {
+      /* ignore */
+    }
+  };
+  window.addEventListener("beforeunload", beforeUnload);
+  window.addEventListener("pagehide", pageHide);
+  studentExamLeaveGuardCleanup = () => {
+    active = false;
+    window.removeEventListener("beforeunload", beforeUnload);
+    window.removeEventListener("pagehide", pageHide);
+    studentExamLeaveGuardCleanup = null;
+  };
+}
+
+function showStudentExamLockGateModal() {
+  const modal = $("#student-exam-lock-modal");
+  const btn = $("#btn-student-exam-lock-continue");
+  if (!modal || !btn) return Promise.resolve();
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  return new Promise((resolve) => {
+    const onContinue = () => {
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      btn.removeEventListener("click", onContinue);
+      resolve();
+    };
+    btn.addEventListener("click", onContinue);
+  });
+}
 
 function setupStudentTabVisibilityWatch(roomId, studentId) {
   studentTabVisibilityCleanup?.();
@@ -1144,6 +1193,7 @@ async function enterApp() {
 
 function logout() {
   closeAdminRoomCommandCenter();
+  studentExamLeaveGuardCleanup?.();
   studentTabVisibilityCleanup?.();
   clearProctorWaitlistPoll();
   clearStudentEntryPollTimer();
@@ -2163,6 +2213,8 @@ function bindStudent() {
     lounge?.classList.add("hidden");
     workspace?.classList.remove("hidden");
     $("#student-room-label").textContent = `${place.roomName} (${place.roomId}) — exam in progress`;
+    await showStudentExamLockGateModal();
+    attachStudentExamLeaveProtection(sid);
     setupStudentTabVisibilityWatch(place.roomId, sid);
 
     let paperMeta;
@@ -2170,6 +2222,7 @@ function bindStudent() {
       paperMeta = await api(`/api/student/${encodeURIComponent(sid)}/paper`);
     } catch (e) {
       alert(e.message);
+      studentExamLeaveGuardCleanup?.();
       return;
     }
 
@@ -2178,6 +2231,7 @@ function bindStudent() {
       currentStep = await api(`/api/student/${encodeURIComponent(sid)}/exam-current`);
     } catch (e) {
       alert(e.message);
+      studentExamLeaveGuardCleanup?.();
       return;
     }
 
@@ -2315,6 +2369,7 @@ function bindStudent() {
           if (next.completed) {
             stopIntegrity();
             socket?.emit("room:leave", { roomId: place.roomId, userId: sid, role: "student" });
+            studentExamLeaveGuardCleanup?.();
             studentTabVisibilityCleanup?.();
             studentWebRtcStop?.();
             studentWebRtcStop = null;

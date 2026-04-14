@@ -623,6 +623,20 @@
                 <div class="exam-wait-spinner" aria-hidden="true"></div>
               </div>
               <div id="student-exam-workspace" class="hidden">
+                <div id="student-exam-lock-modal" class="modal-backdrop hidden" aria-hidden="true">
+                  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="student-exam-lock-title">
+                    <h3 id="student-exam-lock-title" style="margin-top: 0">Stay in this exam tab</h3>
+                    <p class="hint" style="line-height: 1.55">
+                      If you <strong>close</strong> or <strong>refresh</strong> this page, or <strong>leave</strong> it (for example by closing the window), your exam attempt will
+                      <strong>end</strong>: your answers will be treated as submitted for this attempt, and you will
+                      <strong>not</strong> be allowed to continue this same exam. Contact your proctor only if this was unintentional.
+                    </p>
+                    <p class="hint">Your browser may show a short confirmation if you try to leave — that is normal.</p>
+                    <div class="row" style="margin-top: 1rem; justify-content: flex-end">
+                      <button type="button" id="btn-student-exam-lock-continue">I understand — show questions</button>
+                    </div>
+                  </div>
+                </div>
                 <p id="student-room-label" class="hint"></p>
                 <div class="panel" style="margin-top: 0.75rem">
                   <h3 style="margin-top: 0">Private messages</h3>
