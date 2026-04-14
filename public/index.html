@@ -481,31 +481,16 @@
 
         <section data-tab="proctor" class="hidden">
           <div class="proctor-desk-room">
-            <header class="proctor-desk-header">
-              <div class="proctor-access-card">
-                <h2 class="proctor-access-title">Access status</h2>
-                <p id="proctor-gate-line" class="proctor-desk-hint"></p>
-                <p id="proctor-room-heading" class="proctor-desk-exam-head hidden" role="status"></p>
-                <p id="proctor-status" class="proctor-desk-room-line"></p>
-                <div class="proctor-join-row">
-                  <button type="button" id="btn-proctor-join">Join my assigned room</button>
-                </div>
-              </div>
-              <div class="proctor-header-util">
-                <div id="proctor-help-wrap" class="hidden proctor-help-stack">
-                  <button type="button" class="proctor-btn-support" id="btn-proctor-help">Request administration support</button>
-                  <p class="proctor-desk-hint proctor-help-caption">
-                    Visible only after you join your room during the lobby window. Sends a notice to administration.
-                  </p>
-                </div>
-                <button type="button" class="proctor-btn-broadcast" id="btn-proctor-broadcast-mic" title="Not implemented in this trial">
-                  Speak to whole room
-                </button>
-              </div>
-            </header>
-
             <div class="proctor-desk-body">
               <aside class="proctor-sidebar">
+                <div class="proctor-sidebar-card proctor-entry-card">
+                  <p id="proctor-gate-line" class="proctor-desk-hint"></p>
+                  <p id="proctor-room-heading" class="proctor-desk-exam-head hidden" role="status"></p>
+                  <p id="proctor-status" class="proctor-desk-room-line"></p>
+                  <div class="proctor-join-row">
+                    <button type="button" id="btn-proctor-join">Join my assigned room</button>
+                  </div>
+                </div>
                 <div id="proctor-sidebar-inner" class="hidden">
                   <div id="proctor-admit-panel" class="hidden proctor-sidebar-card proctor-admit-card">
                     <h3 class="proctor-sidebar-title">Student admission &amp; paper release</h3>
@@ -556,8 +541,18 @@
               <div class="proctor-desk-main">
                 <div id="proctor-cam-section" class="hidden proctor-cam-zone">
                   <div class="proctor-cam-toolbar">
-                    <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
-                    <span class="proctor-cam-capacity-hint">This space holds up to 16 student cameras.</span>
+                    <div class="proctor-cam-toolbar-left">
+                      <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
+                      <span class="proctor-cam-capacity-hint">This space holds up to 16 student cameras.</span>
+                    </div>
+                    <div id="proctor-help-wrap" class="hidden proctor-cam-utilities">
+                      <button type="button" class="proctor-btn-support proctor-btn-support--toolbar" id="btn-proctor-help" title="Sends a notice to administration">
+                        Request administration support
+                      </button>
+                      <button type="button" class="proctor-btn-broadcast proctor-btn-broadcast--toolbar" id="btn-proctor-broadcast-mic" title="Not implemented in this trial">
+                        Speak to whole room
+                      </button>
+                    </div>
                   </div>
                   <div id="proctor-video-wall" class="video-wall proctor-video-wall"></div>
                 </div>

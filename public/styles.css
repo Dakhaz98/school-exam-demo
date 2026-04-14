@@ -1006,67 +1006,28 @@ label.student-exam-choice-row:focus-within {
   display: none !important;
 }
 
-.proctor-desk-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: clamp(8px, 1.8vw, 14px) clamp(10px, 2vw, 18px);
-  margin-bottom: clamp(8px, 1.8vw, 14px);
-}
-
-.proctor-access-card {
-  flex: 1 1 320px;
-  min-width: 0;
-  /* Match .student-exam-q-card */
-  padding: clamp(12px, 2vw, 16px) clamp(12px, 2.2vw, 18px);
-  border-radius: 12px;
-  background: #1e293b;
-  border: 1px solid #475569;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-}
-
-.proctor-access-title {
-  margin: 0;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+.proctor-entry-card .proctor-desk-hint:first-of-type {
+  margin-top: 0;
 }
 
 .proctor-join-row {
-  margin-top: clamp(10px, 2vw, 16px);
+  margin-top: clamp(8px, 1.5vw, 12px);
 }
 
-.proctor-header-util {
-  flex: 0 1 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  align-items: stretch;
-  justify-content: flex-start;
-}
-
-.proctor-help-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.proctor-help-caption {
-  margin: 0;
-  font-size: 0.82rem;
-  max-width: 22rem;
+.proctor-join-row button#btn-proctor-join {
+  width: 100%;
 }
 
 .proctor-btn-support {
-  width: 100%;
-  padding: 0.65rem 0.85rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.78rem;
   font-weight: 700;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   background: linear-gradient(180deg, #fb923c, #ea580c);
   color: #0f172a;
-  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);
+  box-shadow: 0 2px 10px rgba(234, 88, 12, 0.3);
 }
 
 .proctor-btn-support:hover {
@@ -1074,10 +1035,10 @@ label.student-exam-choice-row:focus-within {
 }
 
 .proctor-btn-broadcast {
-  width: 100%;
-  padding: 0.55rem 0.85rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   background: #334155;
   color: #f1f5f9;
@@ -1086,6 +1047,24 @@ label.student-exam-choice-row:focus-within {
 
 .proctor-btn-broadcast:hover {
   background: #3f4f63;
+}
+
+.proctor-cam-toolbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.proctor-cam-utilities {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex: 1 1 200px;
 }
 
 .proctor-desk-body {
@@ -1252,10 +1231,10 @@ label.student-exam-choice-row:focus-within {
 .proctor-cam-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: clamp(6px, 1.2vw, 10px) clamp(8px, 1.8vw, 14px);
-  margin-bottom: clamp(6px, 1.2vw, 12px);
+  margin-bottom: clamp(6px, 1.2vw, 10px);
 }
 
 .proctor-cam-capacity-hint {
@@ -1264,29 +1243,36 @@ label.student-exam-choice-row:focus-within {
   font-style: italic;
 }
 
+/* Compact tiles: capped column width so feeds do not stretch full row */
 .proctor-video-wall {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(8px, 1.5vw, 12px);
+  grid-template-columns: repeat(4, minmax(0, min(168px, 22vw)));
+  justify-content: start;
+  gap: clamp(6px, 1.2vw, 10px);
   align-items: start;
-  min-height: 180px;
+  min-height: 120px;
 }
 
 @media (max-width: 1200px) {
   .proctor-video-wall {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, min(168px, 28vw)));
   }
 }
 
 @media (max-width: 768px) {
   .proctor-video-wall {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, min(168px, 44vw)));
   }
 }
 
 @media (max-width: 420px) {
   .proctor-video-wall {
     grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .proctor-desk-room .video-tile {
+    max-width: min(168px, 100%);
   }
 }
 
@@ -1294,15 +1280,34 @@ label.student-exam-choice-row:focus-within {
   background: #f8fafc;
   border: 1px solid #cbd5e1;
   color: #0f172a;
-  padding: clamp(6px, 1.2vw, 10px) clamp(8px, 1.5vw, 12px);
+  padding: clamp(4px, 1vw, 8px) clamp(6px, 1.2vw, 10px);
+  max-width: 168px;
+  width: 100%;
+  justify-self: start;
+  box-sizing: border-box;
+}
+
+.proctor-desk-room .video-tile video {
+  max-height: 112px;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
 }
 
 .proctor-desk-room .video-tile-label {
   color: #0f172a;
+  font-size: 0.8rem;
+  margin: 0.25rem 0 0;
 }
 
 .proctor-desk-room .video-tile .webrtc-status {
   color: #475569;
+  font-size: 0.72rem;
+}
+
+.proctor-desk-room .video-tile .video-unmute-btn,
+.proctor-desk-room .video-tile .proctor-tile-ptt {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
 }
 
 .proctor-progress-dock {
@@ -1340,16 +1345,6 @@ label.student-exam-choice-row:focus-within {
 }
 
 @media (max-width: 900px) {
-  .proctor-desk-header {
-    flex-direction: column;
-  }
-
-  .proctor-header-util {
-    flex: 1 1 auto;
-    width: 100%;
-    max-width: none;
-  }
-
   .proctor-sidebar {
     flex: 1 1 100%;
     width: 100%;
