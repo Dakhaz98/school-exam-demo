@@ -1690,7 +1690,11 @@ app.get("/api/proctor/:staffId/room", (req, res) => {
   if (!g.allowed) return res.status(403).json({ error: g.reason, gate: g });
   const r = roomForStaff(req.params.staffId);
   if (!r) return res.status(404).json({ error: "Staff member is not assigned to a room." });
-  res.json({ roomId: r.id, roomName: r.label, gate: g });
+  const ex = state.examSession;
+  const model = ex.selectedModelId ? getModel(ex.selectedModelId) : null;
+  const paperLabel = model?.label || "Exam";
+  const examHeading = `${ex.targetGrade || "Exam"} · ${paperLabel}`;
+  res.json({ roomId: r.id, roomName: r.label, gate: g, examHeading });
 });
 
 app.post("/api/student/:studentId/request-entry", (req, res) => {

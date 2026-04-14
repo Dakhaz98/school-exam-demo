@@ -1289,6 +1289,9 @@ function logout() {
   closeAdminRoomCommandCenter();
   studentExamLeaveGuardCleanup?.();
   studentTabVisibilityCleanup?.();
+  proctorRoomId = null;
+  $("#btn-proctor-join")?.classList.remove("hidden");
+  $("#proctor-room-heading")?.classList.add("hidden");
   clearProctorWaitlistPoll();
   clearStudentEntryPollTimer();
   if (studentExamCountdown) {
@@ -1973,6 +1976,7 @@ async function joinProctorDeskFromSession() {
     alert("Log in as Teacher / proctor first.");
     return;
   }
+  $("#proctor-room-heading")?.classList.add("hidden");
   clearProctorWaitlistPoll();
   $("#proctor-admit-panel")?.classList.add("hidden");
   viewerRtcTeardown?.();
@@ -1984,12 +1988,14 @@ async function joinProctorDeskFromSession() {
   } catch {
     $("#proctor-gate-line").textContent = "Could not read access rules.";
     $("#proctor-cam-section")?.classList.add("hidden");
+    $("#btn-proctor-join")?.classList.remove("hidden");
     return;
   }
     if (!gate.allowed) {
       $("#proctor-gate-line").textContent = "You cannot join yet. See the banner above.";
       $("#proctor-help-wrap")?.classList.add("hidden");
       $("#proctor-cam-section")?.classList.add("hidden");
+      $("#btn-proctor-join")?.classList.remove("hidden");
       return;
     }
   let place;
@@ -1998,9 +2004,15 @@ async function joinProctorDeskFromSession() {
   } catch (e) {
     $("#proctor-gate-line").textContent = e.message;
     $("#proctor-cam-section")?.classList.add("hidden");
+    $("#btn-proctor-join")?.classList.remove("hidden");
     return;
   }
   proctorRoomId = place.roomId;
+  const headEl = $("#proctor-room-heading");
+  if (headEl) {
+    headEl.textContent = place.examHeading || "";
+    headEl.classList.toggle("hidden", !place.examHeading);
+  }
   socket.emit("room:join", { roomId: place.roomId, userId: s.userId, role: "proctor" }, () => {});
   $("#proctor-status").textContent = `Joined ${place.roomName} (${place.roomId})`;
   $("#proctor-gate-line").textContent =
@@ -2039,16 +2051,13 @@ async function joinProctorDeskFromSession() {
   });
   socket.on("integrity:event", (ev) => {
     if (ev.roomId !== place.roomId) return;
-    if (log) {
-      const line = document.createElement("div");
-      line.textContent = `[flag] ${ev.studentId || ""}: ${ev.type}`;
-      log.prepend(line);
-    }
     if (ev.studentId && (ev.type === "audio_activity" || ev.type === "motion_heuristic" || ev.type === "tab_switch")) {
       const tile = findVideoTile(camWall, ev.studentId);
       if (tile) {
+        tile.classList.remove("video-tile-alert");
+        void tile.offsetWidth;
         tile.classList.add("video-tile-alert");
-        setTimeout(() => tile.classList.remove("video-tile-alert"), 2800);
+        setTimeout(() => tile.classList.remove("video-tile-alert"), 5200);
       }
     }
   });
@@ -2070,6 +2079,7 @@ async function joinProctorDeskFromSession() {
     });
   };
 
+  $("#btn-proctor-join")?.classList.add("hidden");
   void refreshProctorRoomProgress();
 }
 

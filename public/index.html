@@ -517,7 +517,8 @@
               <button type="button" class="warn" id="btn-proctor-help">Request administration support</button>
               <p class="hint">Visible only after you join your room during the lobby window. Sends a notice to administration.</p>
             </div>
-            <div class="proctor-live-grid">
+            <div class="proctor-live-wrap">
+              <p id="proctor-room-heading" class="proctor-room-banner hidden" role="status"></p>
               <aside class="proctor-col-left">
                 <div id="proctor-admit-panel" class="hidden panel">
                   <h3 style="margin-top: 0">Student admission &amp; paper release</h3>
@@ -588,9 +589,11 @@
                     <tbody id="proctor-progress-body"></tbody>
                   </table>
                 </div>
-                <details class="panel" style="margin-top: 0.75rem">
-                  <summary style="cursor: pointer; font-weight: 600">Technical activity log</summary>
-                  <p class="hint" style="margin-top: 0.5rem">Raw flags for IT / debugging. Prefer red tile highlights for live attention.</p>
+                <details class="panel proctor-tech-log" style="margin-top: 0.75rem">
+                  <summary style="cursor: pointer; font-weight: 600">Technical log (optional)</summary>
+                  <p class="hint" style="margin-top: 0.5rem">
+                    Private messages appear here. Integrity flags are shown as <strong>red highlights</strong> on camera tiles — not as a live feed.
+                  </p>
                   <div id="proctor-chat-log" class="log"></div>
                 </details>
               </aside>
@@ -674,8 +677,8 @@
                       <h1 id="student-exam-heading" class="student-exam-heading"></h1>
                       <p id="student-room-label" class="student-exam-roomline"></p>
                     </div>
-                    <aside id="student-exam-pip-slot" class="student-exam-pip" aria-label="Your camera preview"></aside>
                   </header>
+                  <aside id="student-exam-pip-slot" class="student-exam-pip" aria-label="Your camera preview"></aside>
                   <div class="student-exam-warn" role="alert">
                     Do not leave this page, open another tab, or use another browser during the exam. If you do, your attempt may end immediately and your answers will be saved as submitted.
                   </div>
@@ -684,21 +687,23 @@
                       <div id="exam-area"></div>
                       <div id="student-mcq-result" class="panel hidden" style="margin-top: 1rem"></div>
                     </div>
-                    <aside class="student-exam-side panel">
-                      <h3 style="margin-top: 0">Private messages</h3>
-                      <div id="student-pm-log" class="log" style="max-height: 160px"></div>
-                      <div class="row" style="margin-top: 0.5rem; flex-wrap: wrap">
-                        <label>
-                          Staff ID to reply
-                          <input id="student-pm-to" type="text" placeholder="teacher-1" />
-                        </label>
-                        <label style="flex: 1; min-width: 10rem">
-                          Message
-                          <input id="student-pm-body" type="text" />
-                        </label>
-                        <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                    <details class="student-exam-pm-drawer panel">
+                      <summary class="student-exam-pm-summary">Private messages to staff (click to expand)</summary>
+                      <div class="student-exam-pm-inner">
+                        <div id="student-pm-log" class="log" style="max-height: 160px"></div>
+                        <div class="row" style="margin-top: 0.5rem; flex-wrap: wrap">
+                          <label>
+                            Staff ID to reply
+                            <input id="student-pm-to" type="text" placeholder="teacher-1" />
+                          </label>
+                          <label style="flex: 1; min-width: 10rem">
+                            Message
+                            <input id="student-pm-body" type="text" />
+                          </label>
+                          <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                        </div>
                       </div>
-                    </aside>
+                    </details>
                   </div>
                 </div>
               </div>
