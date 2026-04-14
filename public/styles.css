@@ -783,6 +783,10 @@ summary:focus-visible {
   background: #ffffff;
   color: #0f172a;
   min-width: 0;
+  /* Exam stem + MCQ stay visually left-to-right even when the browser/page is RTL */
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
 }
 
 .student-exam-wire-exam-area {
@@ -861,6 +865,9 @@ summary:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .student-exam-q-card .mcq-qtext {
@@ -880,10 +887,11 @@ label.student-exam-choice-row {
   align-items: center;
   gap: 10px;
   margin: 8px 0;
-  margin-left: 0;
-  margin-right: 0;
+  margin-inline: 0;
   width: 100%;
   max-width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
   padding: clamp(6px, 1.2vw, 10px) clamp(10px, 2vw, 16px);
   border: 1px solid #e2e8f0;
   border-radius: 4px;
