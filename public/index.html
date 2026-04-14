@@ -58,9 +58,9 @@
         <div class="panel" style="margin-top: 0.75rem; background: rgba(94, 225, 208, 0.08); border-color: rgba(94, 225, 208, 0.25)">
           <h3 style="margin-top: 0">Quick trial</h3>
           <p class="hint" style="margin-bottom: 0.5rem">
-            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load AIS trial scenario</strong> to preload the platform, then use <strong>Fill: Student-1 / 2 / 3</strong> and <strong>Fill: teacher-1 / 2</strong> below (one device per student id).
+            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load AIS trial scenario</strong> to preload the platform (16 students in one room), then use <strong>Fill: Student-1 … Student-16</strong> and <strong>Fill: teacher-1 / 2</strong> below (one device per student id for live video).
           </p>
-          <div class="row" style="flex-wrap: wrap; gap: 0.35rem">
+          <div class="row" id="quick-trial-fills-row" style="flex-wrap: wrap; gap: 0.35rem">
             <button type="button" class="secondary" id="btn-fill-admin">Fill: Administration (admin)</button>
             <button type="button" class="secondary" id="btn-fill-teacher-1">Fill: teacher-1</button>
             <button type="button" class="secondary" id="btn-fill-teacher-2">Fill: teacher-2</button>
@@ -77,10 +77,10 @@
               <strong>Tab 1 – Administration:</strong> Load a demo scenario on <strong>Rosters &amp; Excel</strong>, then use <strong>Live control</strong> → <strong>Open command center</strong> on a room: a <strong>new tab</strong> opens with the full room dashboard (same tools as the teacher view). If the pop-up is blocked, the command center opens in the current tab instead.
             </li>
             <li>
-              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the top banner allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). You will see camera feeds, the room log, and integrity flags.
+              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the lobby gate allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). You will see up to sixteen camera tiles (one feed per connected student id).
             </li>
             <li>
-              <strong>Tab 3 – Student:</strong> Quick fill <strong>Student-1</strong> (or 2 / 3 on other devices) → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. You will see a <strong>waiting area</strong> first; after admit and paper release, the exam page shows questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
+              <strong>Tab 3 – Student:</strong> Quick fill <strong>Student-1</strong> (or any <strong>Student-2 … Student-16</strong> on other devices) → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. You will see a <strong>waiting area</strong> first; after admit and paper release, the exam page shows questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
             </li>
           </ol>
         </details>
@@ -196,9 +196,9 @@
             <button type="button" class="ghost" id="btn-seed-demo">Load demo roster</button>
           </div>
           <div class="panel">
-            <h2>Full trial scenario (Student-1…3 + teacher-1…2)</h2>
+            <h2>Full trial scenario (Student-1…16 + teacher-1…2)</h2>
             <p class="hint">
-              Students <strong>Student-1</strong>, <strong>Student-2</strong>, <strong>Student-3</strong> (Grade 10, same room) and teachers <strong>teacher-1</strong>, <strong>teacher-2</strong> (both assigned proctors). One room, short schedule with lobby open for testing, 10-question MCQ paper, published. Either teacher may <strong>Admit</strong> students; one of them must click <strong>Release question paper</strong> or questions will not load. Use one browser/device per student id.
+              Students <strong>Student-1</strong> through <strong>Student-16</strong> (Grade 10, same room) and teachers <strong>teacher-1</strong>, <strong>teacher-2</strong> (both assigned proctors). One room, short schedule with lobby open for testing, 10-question MCQ paper, published. Either teacher may <strong>Admit</strong> students; one of them must click <strong>Release question paper</strong> or questions will not load. Use one browser/device per student id for each live camera.
             </p>
             <button type="button" id="btn-seed-ais-trial">Load AIS trial scenario</button>
             <p class="hint" id="seed-ais-result" style="margin-top: 0.65rem"></p>

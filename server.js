@@ -606,29 +606,18 @@ function aisTrialQuestionList() {
 }
 
 function runSeedAisTrialScenario() {
-  const students = [
-    {
-      studentId: "Student-1",
-      fullName: "Student-1",
-      email: "student-1@demo.school",
+  /** Sixteen students in one room so proctor camera wall can be layout-tested at full capacity */
+  const students = [];
+  for (let i = 1; i <= 16; i++) {
+    const sid = `Student-${i}`;
+    students.push({
+      studentId: sid,
+      fullName: sid,
+      email: `student-${i}@demo.school`,
       stage: "Secondary",
       grade: "Grade 10",
-    },
-    {
-      studentId: "Student-2",
-      fullName: "Student-2",
-      email: "student-2@demo.school",
-      stage: "Secondary",
-      grade: "Grade 10",
-    },
-    {
-      studentId: "Student-3",
-      fullName: "Student-3",
-      email: "student-3@demo.school",
-      stage: "Secondary",
-      grade: "Grade 10",
-    },
-  ];
+    });
+  }
   const teachers = [
     {
       staffId: "teacher-1",
@@ -685,7 +674,7 @@ function runSeedAisTrialScenario() {
     admin: { role: "admin", userId: "admin", displayName: "Administration" },
     grade: primary.grade,
     note:
-      "Three students in one room; teacher-1 and teacher-2 are both assigned as proctors (either may Admit and must click Release question paper after students are ready — questions stay hidden until Release). Use one device per student id. Camera and microphone required before Begin exam.",
+      "Sixteen students (Student-1 … Student-16) in one room; teacher-1 and teacher-2 are both assigned as proctors (either may Admit and must click Release question paper after students are ready — questions stay hidden until Release). Use one device per student id for live video; other tiles show as waiting until each id connects. Camera and microphone required before Begin exam.",
   };
 }
 
@@ -1438,7 +1427,7 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
     b.variant === "trio" || b.mode === "trio" || qv === "trio" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "trio";
   if (wantAis) {
     const scenario = runSeedAisTrialScenario();
-    appendAudit("seed_ais_trial", "Trial Student-1..3 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
+    appendAudit("seed_ais_trial", "Trial Student-1..16 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
     broadcastState();
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }

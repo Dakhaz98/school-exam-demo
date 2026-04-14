@@ -825,6 +825,11 @@ async function refreshState() {
 async function refreshGateBanner() {
   const s = loadSession();
   if (!s || s.role === "admin") return;
+  /* Proctor desk: no top lobby strip — status lives in the desk sidebar */
+  if (s.role === "proctor") {
+    $("#hero-banner")?.classList.add("hidden");
+    return;
+  }
   try {
     const g = await api(`/api/gate?role=${encodeURIComponent(s.role)}&userId=${encodeURIComponent(s.userId)}`);
     const hb = $("#hero-banner");
@@ -2672,6 +2677,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-fill-student-1")?.addEventListener("click", () => fillStudent("Student-1"));
   $("#btn-fill-student-2")?.addEventListener("click", () => fillStudent("Student-2"));
   $("#btn-fill-student-3")?.addEventListener("click", () => fillStudent("Student-3"));
+  const quickRow = $("#quick-trial-fills-row");
+  if (quickRow) {
+    for (let i = 4; i <= 16; i++) {
+      const id = `Student-${i}`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "secondary";
+      btn.textContent = `Fill: ${id}`;
+      btn.addEventListener("click", () => fillStudent(id));
+      quickRow.appendChild(btn);
+    }
+  }
   $("#btn-fill-teacher-1")?.addEventListener("click", () => fillTeacher("teacher-1"));
   $("#btn-fill-teacher-2")?.addEventListener("click", () => fillTeacher("teacher-2"));
 
