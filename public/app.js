@@ -35,6 +35,8 @@ function setStudentExamFullBleed(active) {
 function setProctorDeskFullBleed(active) {
   $("#view-app")?.classList.toggle("proctor-desk-layout-active", !!active);
   $("#main-content")?.classList.toggle("proctor-desk-main-bleed", !!active);
+  $("#proctor-header-context")?.classList.toggle("hidden", !active);
+  document.querySelector(".app-header")?.classList.toggle("app-header--proctor", !!active);
 }
 
 function restoreStudentVideoHome() {
