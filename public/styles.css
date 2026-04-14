@@ -1009,6 +1009,8 @@ label.student-exam-choice-row:focus-within {
 /* —— Proctor monitoring room (dark wireframe layout) —— */
 .proctor-desk-room {
   box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   min-height: min(70vh, 920px);
   margin: 0;
   /* Match .student-exam-wire outer padding (responsive gutters) */
@@ -1129,6 +1131,8 @@ label.student-exam-choice-row:focus-within {
 .proctor-desk-main {
   flex: 1 1 360px;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: clamp(8px, 1.8vw, 14px);
@@ -1263,9 +1267,11 @@ label.student-exam-choice-row:focus-within {
 
 .proctor-cam-zone {
   flex: 1 1 auto;
-  min-height: 220px;
-  /* Match .student-exam-wire-main */
-  padding: clamp(12px, 2vw, 18px) clamp(12px, 2.5vw, 22px) clamp(14px, 2.5vw, 22px);
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(10px, 1.6vw, 16px) clamp(10px, 2vw, 18px) clamp(12px, 2vw, 18px);
   border-radius: 12px;
   background: #1e293b;
   border: 1px solid #475569;
@@ -1286,61 +1292,58 @@ label.student-exam-choice-row:focus-within {
   font-style: italic;
 }
 
-/* 4×4 narrow tiles (16 feeds) — fixed max column width so tiles are not stretched */
+/*
+ * Camera wall: fluid 4×N grid — four equal columns fill the main pane width (no dead strip).
+ * Up to 16 students → four rows; each tile grows/shrinks with the container.
+ */
 .proctor-video-wall {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 118px));
-  justify-content: start;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   width: 100%;
-  gap: clamp(5px, 0.9vw, 8px);
-  align-items: start;
+  gap: clamp(8px, 1.2vw, 14px);
+  align-items: stretch;
   min-height: 0;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .proctor-video-wall {
-    grid-template-columns: repeat(4, minmax(0, 104px));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 560px) {
   .proctor-video-wall {
-    grid-template-columns: repeat(3, minmax(0, 100px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 380px) {
   .proctor-video-wall {
-    grid-template-columns: repeat(2, minmax(0, 96px));
-  }
-}
-
-@media (max-width: 360px) {
-  .proctor-video-wall {
-    grid-template-columns: minmax(0, 100%);
-  }
-
-  .proctor-desk-room .video-tile {
-    max-width: min(118px, 100%);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 .proctor-desk-room .video-tile {
+  display: flex;
+  flex-direction: column;
   background: #f8fafc;
   border: 1px solid #cbd5e1;
   color: #0f172a;
-  padding: clamp(3px, 0.7vw, 6px) clamp(4px, 0.8vw, 7px);
+  padding: clamp(6px, 1vw, 10px);
   width: 100%;
-  max-width: 118px;
   min-width: 0;
   box-sizing: border-box;
+  border-radius: 8px;
 }
 
 .proctor-desk-room .video-tile video {
   width: 100%;
+  flex: 0 0 auto;
   aspect-ratio: 16 / 10;
-  max-height: clamp(56px, 9vw, 88px);
+  height: auto;
   object-fit: cover;
+  border-radius: 6px;
+  background: #000;
 }
 
 .proctor-desk-room .video-tile-label {
@@ -1424,4 +1427,8 @@ label.student-exam-choice-row:focus-within {
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-top: 0.35rem;
+}
+
+.proctor-desk-room .video-tile .proctor-tile-actions {
+  margin-top: auto;
 }
