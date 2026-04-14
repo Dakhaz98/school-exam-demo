@@ -1304,6 +1304,9 @@ function logout() {
   proctorRoomId = null;
   $("#btn-proctor-join")?.classList.remove("hidden");
   $("#proctor-room-heading")?.classList.add("hidden");
+  $("#proctor-sidebar-inner")?.classList.add("hidden");
+  $("#proctor-admit-panel")?.classList.add("hidden");
+  $("#proctor-cam-section")?.classList.add("hidden");
   setStudentExamFullBleed(false);
   $("#student-desk-chrome")?.classList.remove("hidden");
   clearProctorWaitlistPoll();
@@ -1992,6 +1995,7 @@ async function joinProctorDeskFromSession() {
   }
   $("#proctor-room-heading")?.classList.add("hidden");
   clearProctorWaitlistPoll();
+  $("#proctor-sidebar-inner")?.classList.add("hidden");
   $("#proctor-admit-panel")?.classList.add("hidden");
   viewerRtcTeardown?.();
   viewerRtcTeardown = null;
@@ -2032,6 +2036,7 @@ async function joinProctorDeskFromSession() {
   $("#proctor-gate-line").textContent =
     "You are in the live window. Admit each student, then release the question paper so questions can appear.";
   $("#proctor-help-wrap")?.classList.remove("hidden");
+  $("#proctor-sidebar-inner")?.classList.remove("hidden");
   $("#proctor-admit-panel")?.classList.remove("hidden");
   void refreshProctorWaitlist(s.userId);
   proctorWaitlistTimer = setInterval(() => void refreshProctorWaitlist(s.userId), 4000);

@@ -935,87 +935,390 @@ label.student-exam-choice-row:focus-within {
   justify-content: flex-end;
 }
 
-/* —— Proctor monitoring layout —— */
-.proctor-live-wrap {
-  display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr minmax(190px, 260px);
-  grid-template-rows: auto auto;
-  gap: 1rem;
-  margin-top: 1rem;
-  align-items: start;
-}
-
-.proctor-room-banner {
-  grid-column: 1 / -1;
-  grid-row: 1;
+/* —— Proctor monitoring room (dark wireframe layout) —— */
+.proctor-desk-room {
+  box-sizing: border-box;
+  min-height: min(70vh, 920px);
   margin: 0;
-  padding: 0.55rem 0.9rem;
-  border-radius: 0.65rem;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 1.05rem;
-  font-weight: 700;
-  line-height: 1.35;
-  color: var(--text);
+  padding: 1.25rem 1.35rem 1.5rem;
+  border-radius: 14px;
+  background: linear-gradient(165deg, #0f172a 0%, #1e293b 42%, #0f172a 100%);
+  border: 1px solid #334155;
+  color: #f1f5f9;
 }
 
-.proctor-room-banner.hidden {
+.proctor-desk-room h2,
+.proctor-desk-room h3 {
+  color: #f8fafc;
+}
+
+.proctor-desk-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+.proctor-desk-room-line {
+  margin: 0.65rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.proctor-desk-exam-head {
+  margin: 0.45rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.proctor-desk-exam-head.hidden {
   display: none !important;
 }
 
-.proctor-col-left {
-  grid-column: 1;
-  grid-row: 2;
+.proctor-desk-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 1rem 1.25rem;
+  margin-bottom: 1.1rem;
 }
 
-.proctor-col-main {
-  grid-column: 2;
-  grid-row: 2;
+.proctor-access-card {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 1rem 1.15rem 1.1rem;
+  border-radius: 12px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
-.proctor-col-right {
-  grid-column: 3;
-  grid-row: 2;
+.proctor-access-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
-.proctor-col-main .video-wall {
-  min-height: 200px;
+.proctor-join-row {
+  margin-top: 1rem;
 }
 
-@media (max-width: 1024px) {
-  .proctor-live-wrap {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto auto;
-  }
-
-  .proctor-room-banner {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .proctor-col-left {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .proctor-col-main {
-    grid-column: 1;
-    grid-row: 3;
-  }
-
-  .proctor-col-right {
-    grid-column: 1;
-    grid-row: 4;
-  }
+.proctor-header-util {
+  flex: 0 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
-.proctor-broadcast-bar {
+.proctor-help-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.proctor-help-caption {
+  margin: 0;
+  font-size: 0.82rem;
+  max-width: 22rem;
+}
+
+.proctor-btn-support {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #fb923c, #ea580c);
+  color: #0f172a;
+  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);
+}
+
+.proctor-btn-support:hover {
+  filter: brightness(1.05);
+}
+
+.proctor-btn-broadcast {
+  width: 100%;
+  padding: 0.55rem 0.85rem;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  background: #334155;
+  color: #f1f5f9;
+  border: 1px solid #475569;
+}
+
+.proctor-btn-broadcast:hover {
+  background: #3f4f63;
+}
+
+.proctor-desk-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.proctor-sidebar {
+  flex: 0 0 min(100%, 300px);
+  width: min(100%, 300px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.proctor-desk-main {
+  flex: 1 1 360px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.proctor-sidebar-card {
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  background: #1e293b;
+  border: 1px solid #475569;
+}
+
+.proctor-sidebar-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.proctor-admit-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.65rem 0 0.5rem;
+}
+
+.proctor-btn-roster-refresh {
+  width: 100%;
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #64748b !important;
+}
+
+.proctor-btn-release-paper {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #5eead4, #14b8a6);
+  color: #0f172a;
+  box-shadow: 0 6px 20px rgba(20, 184, 166, 0.35);
+}
+
+.proctor-btn-release-paper:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.proctor-btn-release-paper:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.proctor-table-scroll {
+  margin-top: 0.5rem;
+  max-height: 280px;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.proctor-desk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.proctor-desk-table th,
+.proctor-desk-table td {
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  border-bottom: 1px solid #334155;
+  vertical-align: middle;
+}
+
+.proctor-desk-table th {
+  background: #0f172a;
+  color: #cbd5e1;
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.proctor-desk-table tbody tr:hover td {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.proctor-pm-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.proctor-pm-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+.proctor-desk-room .proctor-pm-label input {
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #64748b;
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+.proctor-tech-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.proctor-tech-intro {
+  margin-top: 0.5rem;
+}
+
+.proctor-chat-log {
+  max-height: 160px;
+  margin-top: 0.35rem;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+
+.proctor-cam-zone {
+  flex: 1 1 auto;
+  min-height: 220px;
+  padding: 0.85rem 1rem 1rem;
+  border-radius: 12px;
+  background: #1e293b;
+  border: 1px solid #475569;
+}
+
+.proctor-cam-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.proctor-cam-capacity-hint {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.proctor-video-wall {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  align-items: start;
+  min-height: 180px;
+}
+
+@media (max-width: 1200px) {
+  .proctor-video-wall {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .proctor-video-wall {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .proctor-video-wall {
+    grid-template-columns: 1fr;
+  }
+}
+
+.proctor-desk-room .video-tile {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+
+.proctor-desk-room .video-tile-label {
+  color: #0f172a;
+}
+
+.proctor-desk-room .video-tile .webrtc-status {
+  color: #475569;
+}
+
+.proctor-progress-dock {
+  padding: 0.9rem 1rem 1rem;
+  border-radius: 12px;
+  background: #1e293b;
+  border: 1px solid #475569;
+}
+
+.proctor-progress-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.proctor-progress-copy {
+  margin: 0 0 0.65rem;
+}
+
+.proctor-desk-room button.secondary {
+  background: #334155;
+  color: #e2e8f0;
+  border: 1px solid #64748b;
+  box-shadow: none;
+}
+
+.proctor-desk-room button.secondary:hover {
+  background: #475569;
+}
+
+.proctor-desk-room .log {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+@media (max-width: 900px) {
+  .proctor-desk-header {
+    flex-direction: column;
+  }
+
+  .proctor-header-util {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .proctor-sidebar {
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 
 .video-tile-alert {
