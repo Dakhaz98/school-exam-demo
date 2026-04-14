@@ -22,9 +22,59 @@ let studentEntryPollTimer = null;
 let studentTabVisibilityCleanup = null;
 /** @type {null | (() => void)} */
 let studentExamLeaveGuardCleanup = null;
+/** @type {ReturnType<typeof setInterval> | null} */
+let studentRevokePollTimer = null;
 
-function attachStudentExamLeaveProtection(studentId) {
+function restoreStudentVideoHome() {
+  const pip = $("#student-exam-pip-slot");
+  const home = $("#student-video-home");
+  const wrap = pip?.querySelector(".video-wrap");
+  if (home && wrap) home.appendChild(wrap);
+}
+
+function moveStudentVideoToPip() {
+  const pip = $("#student-exam-pip-slot");
+  const home = $("#student-video-home");
+  const wrap = home?.querySelector(".video-wrap");
+  if (pip && wrap) pip.appendChild(wrap);
+}
+
+async function finalizeStudentExamRevokedUi(studentId, place) {
+  if (studentExamCountdown) {
+    clearInterval(studentExamCountdown);
+    studentExamCountdown = null;
+  }
+  stopIntegrity();
+  try {
+    socket?.emit("room:leave", { roomId: place.roomId, userId: studentId, role: "student" });
+  } catch {
+    /* ignore */
+  }
+  studentTabVisibilityCleanup?.();
+  studentWebRtcStop?.();
+  studentWebRtcStop = null;
+  const v = $("#student-video");
+  try {
+    const stream = v?.srcObject;
+    if (stream?.getTracks) stream.getTracks().forEach((tr) => tr.stop());
+    if (v) v.srcObject = null;
+  } catch {
+    /* ignore */
+  }
+  restoreStudentVideoHome();
+  $("#student-exam-lock-modal")?.classList.add("hidden");
+  $("#student-exam-workspace")?.classList.add("hidden");
+  $("#student-wait-lounge")?.classList.add("hidden");
+  $("#student-preexam-block")?.classList.remove("hidden");
+  $("#student-exam-ended-overlay")?.classList.remove("hidden");
+}
+
+function attachStudentExamLeaveProtection(studentId, place) {
   studentExamLeaveGuardCleanup?.();
+  if (studentRevokePollTimer) {
+    clearInterval(studentRevokePollTimer);
+    studentRevokePollTimer = null;
+  }
   let active = true;
   const beforeUnload = (e) => {
     e.preventDefault();
@@ -45,8 +95,33 @@ function attachStudentExamLeaveProtection(studentId) {
   };
   window.addEventListener("beforeunload", beforeUnload);
   window.addEventListener("pagehide", pageHide);
+
+  const stopPoll = () => {
+    if (studentRevokePollTimer) {
+      clearInterval(studentRevokePollTimer);
+      studentRevokePollTimer = null;
+    }
+  };
+
+  studentRevokePollTimer = setInterval(async () => {
+    try {
+      const st = await api(`/api/student/${encodeURIComponent(studentId)}/entry-status`);
+      if (st.examRevoked) {
+        stopPoll();
+        active = false;
+        window.removeEventListener("beforeunload", beforeUnload);
+        window.removeEventListener("pagehide", pageHide);
+        studentExamLeaveGuardCleanup = null;
+        await finalizeStudentExamRevokedUi(studentId, place);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, 3500);
+
   studentExamLeaveGuardCleanup = () => {
     active = false;
+    stopPoll();
     window.removeEventListener("beforeunload", beforeUnload);
     window.removeEventListener("pagehide", pageHide);
     studentExamLeaveGuardCleanup = null;
@@ -547,11 +622,14 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       wrap = document.createElement("div");
       wrap.className = "video-tile";
       wrap.dataset.student = studentId;
-      wrap.innerHTML = `<p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><button type="button" class="secondary video-unmute-btn">Unmute this feed</button>`;
+      wrap.innerHTML = `<p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Push-to-talk to this student">Talk to student</button></div>`;
       container.appendChild(wrap);
       wrap.querySelector(".video-unmute-btn")?.addEventListener("click", () => {
         const v = wrap.querySelector("video");
         if (v) v.muted = !v.muted;
+      });
+      wrap.querySelector(".proctor-tile-ptt")?.addEventListener("click", () => {
+        alert("Push-to-talk from proctor to one student needs extra WebRTC audio upstream — not wired in this trial. Use private chat or administration support.");
       });
     }
     const videoEl = wrap.querySelector("video");
@@ -1176,6 +1254,17 @@ async function enterApp() {
       line.textContent = `[private] ${msg.fromUserId}: ${msg.text}`;
       log.prepend(line);
     });
+    void (async () => {
+      try {
+        const st = await api(`/api/student/${encodeURIComponent(userId)}/entry-status`);
+        if (st.examRevoked) {
+          $("#student-after-consent")?.classList.remove("hidden");
+          $("#student-exam-ended-overlay")?.classList.remove("hidden");
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
   }
 
   await refreshState();
@@ -1535,6 +1624,7 @@ function bindLiveTab() {
 }
 
 const LS_ADMIN_ROOM_LAUNCH = "examDemoAdminRoomLaunch";
+const LS_PROCTOR_DESK_LAUNCH = "examDemoProctorDeskLaunch";
 
 /** @type {null | (() => void)} */
 let adminRoomSocketCleanup = null;
@@ -1727,6 +1817,73 @@ async function maybeBootstrapAdminRoomTab() {
   return true;
 }
 
+function openProctorDeskInNewWindow() {
+  const s = loadSession();
+  if (!s || s.role !== "proctor") return false;
+  try {
+    localStorage.setItem(
+      LS_PROCTOR_DESK_LAUNCH,
+      JSON.stringify({
+        role: "proctor",
+        userId: s.userId,
+        displayName: s.displayName || s.userId,
+        exp: Date.now() + 180000,
+      })
+    );
+  } catch {
+    return false;
+  }
+  const u = new URL(window.location.href);
+  u.searchParams.set("proctor_desk", "1");
+  const win = window.open(u.toString(), "_blank", "noopener,noreferrer");
+  return !!win;
+}
+
+async function maybeBootstrapProctorDeskTab() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("proctor_desk") !== "1") return false;
+  let raw;
+  try {
+    raw = localStorage.getItem(LS_PROCTOR_DESK_LAUNCH);
+  } catch {
+    return false;
+  }
+  if (!raw) {
+    try {
+      history.replaceState({}, "", window.location.pathname);
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    localStorage.removeItem(LS_PROCTOR_DESK_LAUNCH);
+    history.replaceState({}, "", window.location.pathname);
+    return false;
+  }
+  if (Date.now() > data.exp || data.role !== "proctor") {
+    localStorage.removeItem(LS_PROCTOR_DESK_LAUNCH);
+    history.replaceState({}, "", window.location.pathname);
+    return false;
+  }
+  localStorage.removeItem(LS_PROCTOR_DESK_LAUNCH);
+  try {
+    history.replaceState({}, "", window.location.pathname);
+  } catch {
+    /* ignore */
+  }
+  $("#role").value = "proctor";
+  $("#userId").value = data.userId;
+  $("#displayName").value = data.displayName || data.userId;
+  syncUserIdLabel();
+  await enterApp();
+  await joinProctorDeskFromSession();
+  return true;
+}
+
 async function refreshProctorWaitlist(staffId) {
   const hint = $("#proctor-waitlist-hint");
   const tbody = $("#proctor-waitlist-body");
@@ -1807,6 +1964,112 @@ async function refreshProctorMcqScores() {
   }
 }
 
+async function joinProctorDeskFromSession() {
+  const s = loadSession();
+  if (!s || s.role !== "proctor") {
+    alert("Log in as Teacher / proctor first.");
+    return;
+  }
+  clearProctorWaitlistPoll();
+  $("#proctor-admit-panel")?.classList.add("hidden");
+  viewerRtcTeardown?.();
+  viewerRtcTeardown = null;
+  webRtcViewerHandler = null;
+  let gate;
+  try {
+    gate = await api(`/api/gate?role=proctor&userId=${encodeURIComponent(s.userId)}`);
+  } catch {
+    $("#proctor-gate-line").textContent = "Could not read access rules.";
+    $("#proctor-cam-section")?.classList.add("hidden");
+    return;
+  }
+    if (!gate.allowed) {
+      $("#proctor-gate-line").textContent = "You cannot join yet. See the banner above.";
+      $("#proctor-help-wrap")?.classList.add("hidden");
+      $("#proctor-cam-section")?.classList.add("hidden");
+      return;
+    }
+  let place;
+  try {
+    place = await api(`/api/proctor/${encodeURIComponent(s.userId)}/room`);
+  } catch (e) {
+    $("#proctor-gate-line").textContent = e.message;
+    $("#proctor-cam-section")?.classList.add("hidden");
+    return;
+  }
+  proctorRoomId = place.roomId;
+  socket.emit("room:join", { roomId: place.roomId, userId: s.userId, role: "proctor" }, () => {});
+  $("#proctor-status").textContent = `Joined ${place.roomName} (${place.roomId})`;
+  $("#proctor-gate-line").textContent =
+    "You are in the live window. Admit each student, then release the question paper so questions can appear.";
+  $("#proctor-help-wrap")?.classList.remove("hidden");
+  $("#proctor-admit-panel")?.classList.remove("hidden");
+  void refreshProctorWaitlist(s.userId);
+  proctorWaitlistTimer = setInterval(() => void refreshProctorWaitlist(s.userId), 4000);
+  const wlRef = $("#btn-proctor-waitlist-refresh");
+  if (wlRef) wlRef.onclick = () => void refreshProctorWaitlist(s.userId);
+  $("#btn-proctor-release-paper").onclick = async () => {
+    try {
+      await api(`/api/proctor/${encodeURIComponent(s.userId)}/release-paper`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await refreshProctorWaitlist(s.userId);
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  };
+  const camSection = $("#proctor-cam-section");
+  const camWall = $("#proctor-video-wall");
+  if (camSection) camSection.classList.remove("hidden");
+  if (camWall) void startProctorViewCameras(place.roomId, s.userId, "proctor", camWall);
+
+  const log = $("#proctor-chat-log");
+  if (log) log.innerHTML = "";
+  socket.off("chat:private");
+  socket.off("integrity:event");
+  socket.on("chat:private", (msg) => {
+    if (!log) return;
+    const line = document.createElement("div");
+    line.textContent = `[private] ${msg.fromUserId} to ${msg.toUserId}: ${msg.text}`;
+    log.prepend(line);
+  });
+  socket.on("integrity:event", (ev) => {
+    if (ev.roomId !== place.roomId) return;
+    if (log) {
+      const line = document.createElement("div");
+      line.textContent = `[flag] ${ev.studentId || ""}: ${ev.type}`;
+      log.prepend(line);
+    }
+    if (ev.studentId && (ev.type === "audio_activity" || ev.type === "motion_heuristic" || ev.type === "tab_switch")) {
+      const tile = findVideoTile(camWall, ev.studentId);
+      if (tile) {
+        tile.classList.add("video-tile-alert");
+        setTimeout(() => tile.classList.remove("video-tile-alert"), 2800);
+      }
+    }
+  });
+
+  $("#btn-send-private").onclick = () => {
+    const to = $("#pm-to").value.trim();
+    const text = $("#pm-text").value.trim();
+    if (!to || !text) return;
+    socket.emit("chat:private", { fromUserId: s.userId, toUserId: to, text, roomId: place.roomId });
+    $("#pm-text").value = "";
+  };
+
+  $("#btn-proctor-help").onclick = () => {
+    socket.emit("incident:raise", {
+      roomId: place.roomId,
+      staffId: s.userId,
+      message: "Proctor requested administration support in the exam room.",
+      note: "Any issue type (technical or other). Please respond.",
+    });
+  };
+
+  void refreshProctorMcqScores();
+}
+
 function bindProctor() {
   $("#btn-proctor-mcq-refresh")?.addEventListener("click", () => void refreshProctorMcqScores());
 
@@ -1816,96 +2079,15 @@ function bindProctor() {
   });
 
   $("#btn-proctor-join").onclick = async () => {
-    const s = loadSession();
-    clearProctorWaitlistPoll();
-    $("#proctor-admit-panel")?.classList.add("hidden");
-    viewerRtcTeardown?.();
-    viewerRtcTeardown = null;
-    webRtcViewerHandler = null;
-    let gate;
-    try {
-      gate = await api(`/api/gate?role=proctor&userId=${encodeURIComponent(s.userId)}`);
-    } catch {
-      $("#proctor-gate-line").textContent = "Could not read access rules.";
-      $("#proctor-cam-section")?.classList.add("hidden");
-      return;
-    }
-    if (!gate.allowed) {
-      $("#proctor-gate-line").textContent = "You cannot join yet. See the banner above.";
-      $("#proctor-help-wrap").classList.add("hidden");
-      $("#proctor-cam-section")?.classList.add("hidden");
-      return;
-    }
-    let place;
-    try {
-      place = await api(`/api/proctor/${encodeURIComponent(s.userId)}/room`);
-    } catch (e) {
-      $("#proctor-gate-line").textContent = e.message;
-      $("#proctor-cam-section")?.classList.add("hidden");
-      return;
-    }
-    proctorRoomId = place.roomId;
-    socket.emit("room:join", { roomId: place.roomId, userId: s.userId, role: "proctor" }, () => {});
-    $("#proctor-status").textContent = `Joined ${place.roomName} (${place.roomId})`;
-    $("#proctor-gate-line").textContent =
-      "You are in the live window. Admit each student, then release the question paper so questions can appear.";
-    $("#proctor-help-wrap").classList.remove("hidden");
-    $("#proctor-admit-panel")?.classList.remove("hidden");
-    void refreshProctorWaitlist(s.userId);
-    proctorWaitlistTimer = setInterval(() => void refreshProctorWaitlist(s.userId), 4000);
-    const wlRef = $("#btn-proctor-waitlist-refresh");
-    if (wlRef) wlRef.onclick = () => void refreshProctorWaitlist(s.userId);
-    $("#btn-proctor-release-paper").onclick = async () => {
-      try {
-        await api(`/api/proctor/${encodeURIComponent(s.userId)}/release-paper`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        await refreshProctorWaitlist(s.userId);
-      } catch (e) {
-        alert(e.message || String(e));
-      }
-    };
-    const camSection = $("#proctor-cam-section");
-    const camWall = $("#proctor-video-wall");
-    if (camSection) camSection.classList.remove("hidden");
-    if (camWall) void startProctorViewCameras(place.roomId, s.userId, "proctor", camWall);
-
-    const log = $("#proctor-chat-log");
-    log.innerHTML = "";
-    socket.off("chat:private");
-    socket.off("integrity:event");
-    socket.on("chat:private", (msg) => {
-      const line = document.createElement("div");
-      line.textContent = `[private] ${msg.fromUserId} to ${msg.toUserId}: ${msg.text}`;
-      log.prepend(line);
-    });
-    socket.on("integrity:event", (ev) => {
-      if (ev.roomId !== place.roomId) return;
-      const line = document.createElement("div");
-      line.textContent = `[flag] ${ev.studentId || ""}: ${ev.type}`;
-      log.prepend(line);
-    });
-
-    $("#btn-send-private").onclick = () => {
-      const to = $("#pm-to").value.trim();
-      const text = $("#pm-text").value.trim();
-      if (!to || !text) return;
-      socket.emit("chat:private", { fromUserId: s.userId, toUserId: to, text, roomId: place.roomId });
-      $("#pm-text").value = "";
-    };
-
-    $("#btn-proctor-help").onclick = () => {
-      socket.emit("incident:raise", {
-        roomId: place.roomId,
-        staffId: s.userId,
-        message: "Proctor requested administration support in the exam room.",
-        note: "Any issue type (technical or other). Please respond.",
-      });
-    };
-
-    void refreshProctorMcqScores();
+    if (openProctorDeskInNewWindow()) return;
+    await joinProctorDeskFromSession();
   };
+
+  $("#btn-proctor-broadcast-mic")?.addEventListener("click", () => {
+    alert(
+      "Broadcasting your microphone to all students at once is not implemented in this trial build. Use per-student “Unmute / listen”, private messages, or administration support."
+    );
+  });
 
   const tqInp = $("#file-teacher-questions");
   const tqBtn = $("#btn-teacher-upload-questions");
@@ -2073,6 +2255,7 @@ function bindStudent() {
   $("#btn-enter-exam").onclick = async () => {
     const s = loadSession();
     const sid = s.userId;
+    $("#student-exam-ended-overlay")?.classList.add("hidden");
     clearStudentEntryPollTimer();
     const hc = $("#honesty-check");
     if (!hc?.checked) {
@@ -2168,6 +2351,10 @@ function bindStudent() {
         const entryPollTick = async () => {
           try {
             const st = await api(`/api/student/${encodeURIComponent(sid)}/entry-status`);
+            if (st.examRevoked) {
+              finish(reject, new Error("Your exam attempt was ended (for example you left the browser). Your answers were saved."));
+              return;
+            }
             if (!st.examPublished) {
               if (loungeStatus) {
                 loungeStatus.innerHTML = "The exam is not published yet. Ask administration to publish.";
@@ -2204,7 +2391,14 @@ function bindStudent() {
         studentEntryPollTimer = setInterval(() => void entryPollTick(), 1000);
       });
     } catch (e) {
-      alert(e.message || String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.toLowerCase().includes("revoked")) {
+        clearStudentEntryPollTimer();
+        lounge?.classList.add("hidden");
+        await finalizeStudentExamRevokedUi(sid, place);
+        return;
+      }
+      alert(msg);
       clearStudentEntryPollTimer();
       lounge?.classList.add("hidden");
       preExam?.classList.remove("hidden");
@@ -2212,26 +2406,44 @@ function bindStudent() {
     }
     lounge?.classList.add("hidden");
     workspace?.classList.remove("hidden");
+    moveStudentVideoToPip();
     $("#student-room-label").textContent = `${place.roomName} (${place.roomId}) — exam in progress`;
     await showStudentExamLockGateModal();
-    attachStudentExamLeaveProtection(sid);
+    attachStudentExamLeaveProtection(sid, place);
     setupStudentTabVisibilityWatch(place.roomId, sid);
 
     let paperMeta;
     try {
       paperMeta = await api(`/api/student/${encodeURIComponent(sid)}/paper`);
     } catch (e) {
-      alert(e.message);
+      const msg = e.message || String(e);
+      if (msg.toLowerCase().includes("revoked")) {
+        studentExamLeaveGuardCleanup?.();
+        await finalizeStudentExamRevokedUi(sid, place);
+        return;
+      }
+      alert(msg);
       studentExamLeaveGuardCleanup?.();
+      restoreStudentVideoHome();
       return;
     }
+
+    const headingEl = $("#student-exam-heading");
+    if (headingEl) headingEl.textContent = paperMeta.examHeading || "Exam";
 
     let currentStep;
     try {
       currentStep = await api(`/api/student/${encodeURIComponent(sid)}/exam-current`);
     } catch (e) {
-      alert(e.message);
+      const msg = e.message || String(e);
+      if (msg.toLowerCase().includes("revoked")) {
+        studentExamLeaveGuardCleanup?.();
+        await finalizeStudentExamRevokedUi(sid, place);
+        return;
+      }
+      alert(msg);
       studentExamLeaveGuardCleanup?.();
+      restoreStudentVideoHome();
       return;
     }
 
@@ -2328,8 +2540,9 @@ function bindStudent() {
       area.appendChild(prog);
       const q = step.question;
       const box = document.createElement("div");
-      box.className = "question panel";
+      box.className = "question panel student-exam-q-card";
       const p = document.createElement("p");
+      p.className = "mcq-qtext";
       p.textContent = q.text;
       box.appendChild(p);
       let selected = null;
@@ -2380,12 +2593,19 @@ function bindStudent() {
             } catch {
               /* ignore */
             }
+            restoreStudentVideoHome();
             renderQuestionStep({ completed: true, total: next.total, leftRoom: true });
           } else {
             renderQuestionStep({ ...next, completed: false });
           }
         } catch (e) {
-          alert(e.message || String(e));
+          const msg = e.message || String(e);
+          if (msg.toLowerCase().includes("revoked")) {
+            studentExamLeaveGuardCleanup?.();
+            await finalizeStudentExamRevokedUi(sid, place);
+            return;
+          }
+          alert(msg);
           submitBtn.disabled = false;
         }
       };
@@ -2440,6 +2660,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindLiveTab();
   bindProctor();
   bindStudent();
-  const booted = await maybeBootstrapAdminRoomTab();
-  if (!booted) renderLogin();
+  const proctorBoot = await maybeBootstrapProctorDeskTab();
+  if (!proctorBoot) {
+    const booted = await maybeBootstrapAdminRoomTab();
+    if (!booted) renderLogin();
+  }
 });

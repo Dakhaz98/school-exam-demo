@@ -558,3 +558,190 @@ summary:focus-visible {
   margin: 0 auto;
   padding: 1rem 1.25rem 2rem;
 }
+
+/* —— Student exam focus layout —— */
+.student-exam-ended-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(6, 8, 16, 0.88);
+  backdrop-filter: blur(8px);
+}
+
+.student-exam-ended-overlay.hidden {
+  display: none !important;
+}
+
+.student-exam-ended-card {
+  max-width: 28rem;
+  padding: 1.75rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.student-exam-ended-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.65rem;
+  color: var(--accent);
+}
+
+.student-exam-ended-body {
+  margin: 0 0 1rem;
+  line-height: 1.6;
+}
+
+.student-exam-shell {
+  margin-top: 0.5rem;
+}
+
+.student-exam-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.student-exam-heading {
+  margin: 0;
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.student-exam-roomline {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.student-exam-pip {
+  flex: 0 0 auto;
+  width: min(200px, 38vw);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow);
+  background: #000;
+}
+
+.student-exam-pip .video-wrap {
+  margin: 0;
+  aspect-ratio: 4 / 3;
+}
+
+.student-exam-pip video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.student-exam-warn {
+  padding: 0.65rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 197, 87, 0.45);
+  background: rgba(255, 197, 87, 0.1);
+  color: #ffe8c4;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.student-exam-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.student-exam-main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.student-exam-side {
+  flex: 0 1 280px;
+  margin-top: 0;
+}
+
+.student-exam-q-card {
+  padding: 1.25rem 1.5rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.student-exam-q-card .mcq-qtext {
+  font-size: clamp(1.1rem, 2.2vw, 1.45rem);
+  font-weight: 600;
+  margin: 0 0 1rem;
+  line-height: 1.45;
+}
+
+.student-exam-q-card label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.45rem 0;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+/* —— Proctor room grid —— */
+.proctor-live-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) 1fr minmax(220px, 280px);
+  gap: 1rem;
+  margin-top: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .proctor-live-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.proctor-broadcast-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.video-tile-alert {
+  animation: video-tile-pulse 2.5s ease-out 1;
+  box-shadow: 0 0 0 3px rgba(255, 60, 96, 0.95), 0 0 24px rgba(255, 60, 96, 0.45);
+  border-radius: 0.5rem;
+}
+
+@keyframes video-tile-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 60, 96, 0.9);
+  }
+  40% {
+    box-shadow: 0 0 0 10px rgba(255, 60, 96, 0.15);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(255, 60, 96, 0.5);
+  }
+}
+
+.proctor-tile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}

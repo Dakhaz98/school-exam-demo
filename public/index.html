@@ -517,64 +517,83 @@
               <button type="button" class="warn" id="btn-proctor-help">Request administration support</button>
               <p class="hint">Visible only after you join your room during the lobby window. Sends a notice to administration.</p>
             </div>
-            <div id="proctor-admit-panel" class="hidden panel" style="margin-top: 1rem">
-              <h3 style="margin-top: 0">Student admission &amp; paper release</h3>
-              <p class="hint" id="proctor-waitlist-hint"></p>
-              <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem">
-                <button type="button" class="secondary" id="btn-proctor-waitlist-refresh">Refresh roster status</button>
-                <button type="button" id="btn-proctor-release-paper">Release question paper for this room</button>
-              </div>
-              <table style="margin-top: 0.5rem">
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody id="proctor-waitlist-body"></tbody>
-              </table>
+            <div class="proctor-live-grid">
+              <aside class="proctor-col-left">
+                <div id="proctor-admit-panel" class="hidden panel">
+                  <h3 style="margin-top: 0">Student admission &amp; paper release</h3>
+                  <p class="hint" id="proctor-waitlist-hint"></p>
+                  <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem">
+                    <button type="button" class="secondary" id="btn-proctor-waitlist-refresh">Refresh roster status</button>
+                    <button type="button" id="btn-proctor-release-paper">Release question paper for this room</button>
+                  </div>
+                  <table style="margin-top: 0.5rem; width: 100%">
+                    <thead>
+                      <tr>
+                        <th>Student</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="proctor-waitlist-body"></tbody>
+                  </table>
+                </div>
+              </aside>
+              <main class="proctor-col-main">
+                <div id="proctor-cam-section" class="hidden panel">
+                  <div class="proctor-broadcast-bar">
+                    <h3 style="margin: 0">Live student cameras</h3>
+                    <button type="button" class="secondary" id="btn-proctor-broadcast-mic" title="Not implemented in this trial">
+                      Speak to whole room
+                    </button>
+                  </div>
+                  <p class="hint">
+                    One-way view of each student feed (WebRTC + public STUN). Red highlight on a tile = motion / sound / tab attention signal. Use per-student unmute to listen.
+                  </p>
+                  <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem">
+                    <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
+                  </div>
+                  <div id="proctor-video-wall" class="video-wall"></div>
+                </div>
+              </main>
+              <aside class="proctor-col-right">
+                <div class="panel">
+                  <h3 style="margin-top: 0">Private message</h3>
+                  <div class="row" style="flex-wrap: wrap; gap: 0.5rem">
+                    <label>
+                      Student ID
+                      <input id="pm-to" type="text" placeholder="Student-1" />
+                    </label>
+                    <label style="flex: 1; min-width: 8rem">
+                      Message
+                      <input id="pm-text" type="text" />
+                    </label>
+                    <button type="button" class="secondary" id="btn-send-private">Send</button>
+                  </div>
+                </div>
+                <div class="panel" style="margin-top: 0.75rem">
+                  <h3 style="margin-top: 0">Automatic MCQ scores (this room)</h3>
+                  <p class="hint">Join your room first. Scores use the <strong>Correct</strong> column in the question file.</p>
+                  <button type="button" class="secondary" id="btn-proctor-mcq-refresh">Refresh MCQ scores</button>
+                  <p class="hint" id="proctor-mcq-grade-hint" style="margin-top: 0.5rem"></p>
+                  <table style="margin-top: 0.5rem; width: 100%">
+                    <thead>
+                      <tr>
+                        <th>Student</th>
+                        <th>Correct</th>
+                        <th>Keyed</th>
+                        <th>Percent</th>
+                      </tr>
+                    </thead>
+                    <tbody id="proctor-mcq-grade-body"></tbody>
+                  </table>
+                </div>
+                <details class="panel" style="margin-top: 0.75rem">
+                  <summary style="cursor: pointer; font-weight: 600">Technical activity log</summary>
+                  <p class="hint" style="margin-top: 0.5rem">Raw flags for IT / debugging. Prefer red tile highlights for live attention.</p>
+                  <div id="proctor-chat-log" class="log"></div>
+                </details>
+              </aside>
             </div>
-            <div id="proctor-cam-section" class="hidden" style="margin-top: 1rem">
-              <h3 style="margin-top: 0">Live student cameras</h3>
-              <p class="hint">
-                One-way view of each student feed in this room (browser WebRTC mesh with public STUN). Some networks block peer video until you use a TURN service in production.
-              </p>
-              <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem">
-                <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
-              </div>
-              <div id="proctor-video-wall" class="video-wall"></div>
-            </div>
-            <div class="row" style="margin-top: 0.75rem">
-              <label>
-                Private message to Student ID
-                <input id="pm-to" type="text" placeholder="Student-1" />
-              </label>
-              <label style="flex: 1">
-                Message
-                <input id="pm-text" type="text" />
-              </label>
-              <button type="button" class="secondary" id="btn-send-private">Send private</button>
-            </div>
-            <div class="panel" style="margin-top: 0.75rem">
-              <h3 style="margin-top: 0">Automatic MCQ scores (this room)</h3>
-              <p class="hint">Join your room first. Scores use the <strong>Correct</strong> column in the question file (same shuffle logic as the student paper).</p>
-              <button type="button" class="secondary" id="btn-proctor-mcq-refresh">Refresh MCQ scores</button>
-              <p class="hint" id="proctor-mcq-grade-hint" style="margin-top: 0.5rem"></p>
-              <table style="margin-top: 0.5rem">
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>Correct</th>
-                    <th>Keyed</th>
-                    <th>Percent</th>
-                  </tr>
-                </thead>
-                <tbody id="proctor-mcq-grade-body"></tbody>
-              </table>
-            </div>
-            <h3>Room log</h3>
-            <div id="proctor-chat-log" class="log"></div>
           </div>
         </section>
 
@@ -597,11 +616,20 @@
               <strong>Open lobby now (testing)</strong> on the Live control tab.
             </p>
             <p id="student-gate-line" class="hint"></p>
-            <div class="video-wrap">
+            <div id="student-video-home" class="video-wrap">
               <video id="student-video" autoplay playsinline muted></video>
             </div>
             <p class="hint">Preview is muted to reduce feedback. Audio is still sampled for the demo detector.</p>
             <div id="student-after-consent" class="hidden">
+              <div id="student-exam-ended-overlay" class="student-exam-ended-overlay hidden" aria-live="polite">
+                <div class="student-exam-ended-card">
+                  <h2 class="student-exam-ended-title">Thank you</h2>
+                  <p class="student-exam-ended-body">
+                    Your exam attempt has ended and your answers have been saved. You cannot continue this same exam session. If you think this was a mistake, contact your proctor.
+                  </p>
+                  <p class="hint">You may close this tab or log out.</p>
+                </div>
+              </div>
               <div id="student-preexam-block">
                 <div id="student-policy-box" class="panel" style="margin-bottom: 0.75rem">
                   <h3 style="margin-top: 0" id="student-policy-title">Academic integrity &amp; exam rules</h3>
@@ -637,24 +665,39 @@
                     </div>
                   </div>
                 </div>
-                <p id="student-room-label" class="hint"></p>
-                <div class="panel" style="margin-top: 0.75rem">
-                  <h3 style="margin-top: 0">Private messages</h3>
-                  <div id="student-pm-log" class="log" style="max-height: 140px"></div>
-                  <div class="row" style="margin-top: 0.5rem">
-                    <label>
-                      Staff ID to reply
-                      <input id="student-pm-to" type="text" placeholder="teacher-1" />
-                    </label>
-                    <label style="flex: 1">
-                      Message
-                      <input id="student-pm-body" type="text" />
-                    </label>
-                    <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                <div class="student-exam-shell">
+                  <header class="student-exam-top">
+                    <div class="student-exam-top-text">
+                      <h1 id="student-exam-heading" class="student-exam-heading"></h1>
+                      <p id="student-room-label" class="student-exam-roomline"></p>
+                    </div>
+                    <aside id="student-exam-pip-slot" class="student-exam-pip" aria-label="Your camera preview"></aside>
+                  </header>
+                  <div class="student-exam-warn" role="alert">
+                    Do not leave this page, open another tab, or use another browser during the exam. If you do, your attempt may end immediately and your answers will be saved as submitted.
+                  </div>
+                  <div class="student-exam-body">
+                    <div class="student-exam-main">
+                      <div id="exam-area"></div>
+                      <div id="student-mcq-result" class="panel hidden" style="margin-top: 1rem"></div>
+                    </div>
+                    <aside class="student-exam-side panel">
+                      <h3 style="margin-top: 0">Private messages</h3>
+                      <div id="student-pm-log" class="log" style="max-height: 160px"></div>
+                      <div class="row" style="margin-top: 0.5rem; flex-wrap: wrap">
+                        <label>
+                          Staff ID to reply
+                          <input id="student-pm-to" type="text" placeholder="teacher-1" />
+                        </label>
+                        <label style="flex: 1; min-width: 10rem">
+                          Message
+                          <input id="student-pm-body" type="text" />
+                        </label>
+                        <button type="button" class="secondary" id="btn-student-pm">Send</button>
+                      </div>
+                    </aside>
                   </div>
                 </div>
-                <div id="exam-area" style="margin-top: 1rem"></div>
-                <div id="student-mcq-result" class="panel hidden" style="margin-top: 0.75rem"></div>
               </div>
             </div>
             <div id="student-finish-modal" class="modal-backdrop hidden" aria-hidden="true">

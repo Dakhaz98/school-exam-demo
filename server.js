@@ -1732,6 +1732,7 @@ app.get("/api/student/:studentId/entry-status", (req, res) => {
     examPublished: state.examSession.published,
     requiresExamAccessKey: !!String(state.examAccessKey || "").trim(),
     requiresSeb: !!state.sebRequireForStudents,
+    examRevoked: !!state.studentExamRevoked[sid],
   });
 });
 
@@ -1851,11 +1852,16 @@ app.get("/api/student/:studentId/paper", (req, res) => {
   if (init.err) return res.status(init.err).json(init.body);
   const order = state.studentPaperSets[sid];
   const ex = state.examSession;
+  const model = ex.selectedModelId ? getModel(ex.selectedModelId) : null;
+  const paperLabel = model?.label || "Exam";
+  const examHeading = `${ex.targetGrade || "Exam"} · ${paperLabel}`;
   res.json({
     delivery: "sequential",
     paperQuestionCount: order.length,
     examStartAt: ex.examStartAt,
     examEndAt: ex.examEndAt,
+    examHeading,
+    paperLabel,
     gate: init.g,
     feedbackHint: INTEGRITY_POLICY.feedbackAfterExam,
     hint: "Questions are delivered one at a time. Use GET …/exam-current and POST …/exam-submit from the student app.",
