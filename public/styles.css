@@ -614,11 +614,37 @@ summary:focus-visible {
   display: none !important;
 }
 
+/* Full-width exam workspace: use the whole browser width (fluid padding) */
+#view-app.student-exam-layout-active #main-content {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding-left: clamp(0.35rem, 2.2vw, 1.25rem);
+  padding-right: clamp(0.35rem, 2.2vw, 1.25rem);
+}
+
+#view-app.student-exam-layout-active #student-desk-panel {
+  max-width: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: clamp(0.25rem, 1.5vw, 0.75rem);
+  padding-right: clamp(0.25rem, 1.5vw, 0.75rem);
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 /* —— Student exam wireframe layout (fixed structure) —— */
 .student-exam-wire {
   position: relative;
   margin-top: 0.35rem;
-  padding: 12px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  max-width: 100%;
+  padding: clamp(8px, 1.8vw, 14px);
   border: 2px solid rgba(255, 255, 255, 0.88);
   border-radius: 4px;
   background: #070910;
@@ -627,8 +653,8 @@ summary:focus-visible {
 
 .student-exam-wire-toprow {
   display: grid;
-  grid-template-columns: 168px 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(120px, min(220px, 26vw)) 1fr;
+  gap: clamp(8px, 1.8vw, 14px);
   align-items: stretch;
   min-height: 0;
 }
@@ -727,8 +753,8 @@ summary:focus-visible {
 
 .student-exam-wire-columns {
   display: grid;
-  grid-template-columns: 268px 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(180px, min(300px, 32%)) minmax(0, 1fr);
+  gap: clamp(8px, 1.8vw, 14px);
   align-items: start;
   margin-top: 12px;
 }
@@ -744,23 +770,43 @@ summary:focus-visible {
 }
 
 .student-exam-wire-main {
-  border: 2px solid rgba(255, 255, 255, 0.88);
+  border: 2px solid #94a3b8;
   border-radius: 4px;
-  padding: 14px 16px 16px;
-  background: #0a0d14;
+  padding: clamp(12px, 2vw, 18px) clamp(12px, 2.5vw, 22px) clamp(14px, 2.5vw, 22px);
+  background: #ffffff;
+  color: #0f172a;
   min-width: 0;
 }
 
 .student-exam-wire-exam-area {
   min-height: 120px;
+  background: #ffffff;
+}
+
+.student-exam-wire-main .student-exam-wire-mcq {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.student-exam-wire-main .student-exam-wire-mcq .hint {
+  color: #334155;
 }
 
 .student-exam-wire-instruction {
   margin: 0 0 12px;
-  font-size: 0.92rem;
+  font-size: clamp(0.85rem, 1.6vw, 0.95rem);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.88);
   line-height: 1.4;
+}
+
+.student-exam-wire-main .student-exam-wire-instruction {
+  color: #1e293b;
+}
+
+.student-exam-wire-main .hint {
+  color: #475569;
 }
 
 .student-exam-pm-summary {
@@ -775,7 +821,7 @@ summary:focus-visible {
 
 @media (max-width: 760px) {
   .student-exam-wire-toprow {
-    grid-template-columns: 120px 1fr;
+    grid-template-columns: minmax(96px, 32vw) 1fr;
     gap: 8px;
   }
 
@@ -784,41 +830,59 @@ summary:focus-visible {
   }
 }
 
+@media (max-width: 480px) {
+  .student-exam-wire-toprow {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .student-exam-wire-pip-host {
+    width: min(220px, 72vw);
+    max-width: 100%;
+  }
+
+  .student-exam-wire-head {
+    width: 100%;
+  }
+}
+
 .student-exam-q-card {
-  padding: 14px 16px;
+  padding: clamp(12px, 2vw, 16px) clamp(12px, 2.2vw, 18px);
   border-radius: 4px;
-  border: 2px solid rgba(255, 255, 255, 0.55);
-  background: #06080f;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
 }
 
 .student-exam-q-card .mcq-qtext {
-  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
+  font-size: clamp(1.05rem, 2.5vw, 1.55rem);
   font-weight: 700;
   margin: 0 0 14px;
   line-height: 1.35;
-  color: #fff;
+  color: #020617;
 }
 
 .student-exam-choice-row {
   display: grid;
-  grid-template-columns: 2rem 1fr;
+  grid-template-columns: minmax(1.75rem, 2.25rem) 1fr;
   gap: 10px;
   align-items: center;
   margin: 8px 0;
-  padding: 6px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  padding: clamp(6px, 1.2vw, 10px) clamp(8px, 1.5vw, 12px);
+  border: 1px solid #e2e8f0;
   border-radius: 4px;
   cursor: pointer;
+  background: #fafafa;
 }
 
 .student-exam-choice-row:focus-within {
-  border-color: rgba(94, 225, 208, 0.65);
+  border-color: rgba(94, 225, 208, 0.85);
+  box-shadow: 0 0 0 1px rgba(94, 225, 208, 0.35);
 }
 
 .student-exam-choice-num {
   font-weight: 700;
   font-size: 1rem;
-  color: rgba(255, 255, 255, 0.85);
+  color: #334155;
   text-align: center;
 }
 
@@ -827,9 +891,16 @@ summary:focus-visible {
   align-items: center;
   gap: 10px;
   margin: 0;
-  font-size: 1.05rem;
+  font-size: clamp(0.95rem, 2vw, 1.05rem);
   cursor: pointer;
-  color: #fff;
+  color: #0f172a;
+}
+
+.student-exam-wire-main input[type="radio"] {
+  accent-color: #0f766e;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
 }
 
 .student-exam-q-actions {
