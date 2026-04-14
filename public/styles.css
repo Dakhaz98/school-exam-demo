@@ -500,6 +500,8 @@ summary:focus-visible {
 }
 
 .video-tile {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.5rem 0.6rem;
@@ -515,9 +517,10 @@ summary:focus-visible {
 }
 
 .video-tile-label {
-  margin: 0 0 0.35rem;
+  margin: 0.4rem 0 0;
   font-size: 0.88rem;
   font-weight: 600;
+  text-align: center;
 }
 
 .video-tile .video-unmute-btn {
@@ -595,6 +598,11 @@ summary:focus-visible {
 .student-exam-ended-body {
   margin: 0 0 1rem;
   line-height: 1.6;
+}
+
+/* Hide empty camera dock when preview is moved into the exam PiP slot */
+#student-video-home:empty {
+  display: none;
 }
 
 .student-exam-shell {

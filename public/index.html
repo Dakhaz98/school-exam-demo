@@ -571,20 +571,21 @@
                   </div>
                 </div>
                 <div class="panel" style="margin-top: 0.75rem">
-                  <h3 style="margin-top: 0">Automatic MCQ scores (this room)</h3>
-                  <p class="hint">Join your room first. Scores use the <strong>Correct</strong> column in the question file.</p>
-                  <button type="button" class="secondary" id="btn-proctor-mcq-refresh">Refresh MCQ scores</button>
-                  <p class="hint" id="proctor-mcq-grade-hint" style="margin-top: 0.5rem"></p>
+                  <h3 style="margin-top: 0">Live exam progress (this room)</h3>
+                  <p class="hint">
+                    How far each student has moved through the paper (e.g. question 4 of 10). Automatic scores and item analysis stay on the
+                    <strong>Administration</strong> / results views only — not here during live monitoring.
+                  </p>
+                  <button type="button" class="secondary" id="btn-proctor-progress-refresh">Refresh progress</button>
+                  <p class="hint" id="proctor-progress-hint" style="margin-top: 0.5rem"></p>
                   <table style="margin-top: 0.5rem; width: 100%">
                     <thead>
                       <tr>
                         <th>Student</th>
-                        <th>Correct</th>
-                        <th>Keyed</th>
-                        <th>Percent</th>
+                        <th>Progress</th>
                       </tr>
                     </thead>
-                    <tbody id="proctor-mcq-grade-body"></tbody>
+                    <tbody id="proctor-progress-body"></tbody>
                   </table>
                 </div>
                 <details class="panel" style="margin-top: 0.75rem">
@@ -616,10 +617,12 @@
               <strong>Open lobby now (testing)</strong> on the Live control tab.
             </p>
             <p id="student-gate-line" class="hint"></p>
-            <div id="student-video-home" class="video-wrap">
-              <video id="student-video" autoplay playsinline muted></video>
+            <div id="student-video-home">
+              <div class="video-wrap">
+                <video id="student-video" autoplay playsinline muted></video>
+              </div>
             </div>
-            <p class="hint">Preview is muted to reduce feedback. Audio is still sampled for the demo detector.</p>
+            <p id="student-camera-hint" class="hint">Preview is muted to reduce feedback. Audio is still sampled for the demo detector.</p>
             <div id="student-after-consent" class="hidden">
               <div id="student-exam-ended-overlay" class="student-exam-ended-overlay hidden" aria-live="polite">
                 <div class="student-exam-ended-card">

@@ -28,8 +28,10 @@ let studentRevokePollTimer = null;
 function restoreStudentVideoHome() {
   const pip = $("#student-exam-pip-slot");
   const home = $("#student-video-home");
-  const wrap = pip?.querySelector(".video-wrap");
+  const wrap = pip?.querySelector(".video-wrap") || home?.querySelector(".video-wrap");
   if (home && wrap) home.appendChild(wrap);
+  const hint = $("#student-camera-hint");
+  if (hint) hint.classList.remove("hidden");
 }
 
 function moveStudentVideoToPip() {
@@ -37,6 +39,8 @@ function moveStudentVideoToPip() {
   const home = $("#student-video-home");
   const wrap = home?.querySelector(".video-wrap");
   if (pip && wrap) pip.appendChild(wrap);
+  const hint = $("#student-camera-hint");
+  if (hint) hint.classList.add("hidden");
 }
 
 async function finalizeStudentExamRevokedUi(studentId, place) {
@@ -622,7 +626,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       wrap = document.createElement("div");
       wrap.className = "video-tile";
       wrap.dataset.student = studentId;
-      wrap.innerHTML = `<p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Push-to-talk to this student">Talk to student</button></div>`;
+      wrap.innerHTML = `<video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Push-to-talk to this student">Talk to student</button></div>`;
       container.appendChild(wrap);
       wrap.querySelector(".video-unmute-btn")?.addEventListener("click", () => {
         const v = wrap.querySelector("video");
@@ -1277,6 +1281,7 @@ async function enterApp() {
   socket.on("state:update", () => {
     refreshState();
     if (role !== "admin") refreshGateBanner();
+    if (role === "proctor") void refreshProctorRoomProgress();
   });
 }
 
@@ -1940,23 +1945,21 @@ async function refreshProctorWaitlist(staffId) {
   }
 }
 
-async function refreshProctorMcqScores() {
+async function refreshProctorRoomProgress() {
   const s = loadSession();
   if (!s || s.role !== "proctor") return;
-  const hint = $("#proctor-mcq-grade-hint");
-  const body = $("#proctor-mcq-grade-body");
+  const hint = $("#proctor-progress-hint");
+  const body = $("#proctor-progress-body");
   if (!hint || !body) return;
   hint.textContent = "Loading…";
   body.innerHTML = "";
   try {
-    const g = await api(`/api/proctor/${encodeURIComponent(s.userId)}/auto-grade-room`);
+    const g = await api(`/api/proctor/${encodeURIComponent(s.userId)}/room-exam-progress`);
     hint.textContent = `Room: ${g.roomLabel} (${g.roomId}).`;
     for (const row of g.rows || []) {
       const tr = document.createElement("tr");
-      const pct = row.percent == null ? "—" : `${row.percent}%`;
-      const keyed = row.questionsWithKey ?? 0;
-      const corr = row.correctCount ?? 0;
-      tr.innerHTML = `<td>${escapeHtml(row.fullName)} <span class="hint">(${escapeHtml(row.studentId)})</span></td><td>${corr}</td><td>${keyed}</td><td>${pct}</td>`;
+      const label = escapeHtml(row.progressLabel || "—");
+      tr.innerHTML = `<td>${escapeHtml(row.fullName)} <span class="hint">(${escapeHtml(row.studentId)})</span></td><td>${label}</td>`;
       body.appendChild(tr);
     }
   } catch (e) {
@@ -2067,11 +2070,11 @@ async function joinProctorDeskFromSession() {
     });
   };
 
-  void refreshProctorMcqScores();
+  void refreshProctorRoomProgress();
 }
 
 function bindProctor() {
-  $("#btn-proctor-mcq-refresh")?.addEventListener("click", () => void refreshProctorMcqScores());
+  $("#btn-proctor-progress-refresh")?.addEventListener("click", () => void refreshProctorRoomProgress());
 
   $("#btn-proctor-refresh-cam")?.addEventListener("click", () => {
     const c = lastCameraViewCtx;

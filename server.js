@@ -24,7 +24,7 @@ const PLATFORM_SHIPPED = [
   { id: "publish", label: "Publish with proctor validation" },
   { id: "lobby_gate", label: "Lobby window & time-based access (student / proctor)" },
   { id: "live_control", label: "Live control: extend end, open lobby (testing), rooms, incidents, integrity tail" },
-  { id: "proctor_desk", label: "Proctor desk: join room, private messages, MCQ scores for room, teacher upload" },
+  { id: "proctor_desk", label: "Proctor desk: join room, private messages, live progress (no scores), teacher upload" },
   { id: "student_desk", label: "Student desk: camera/mic consent, integrity policy acknowledgement, paper, timer" },
   { id: "mcq_auto", label: "Automatic MCQ scoring (per-student choice shuffle)" },
   { id: "item_analysis", label: "Item analysis (% correct per keyed question)" },
@@ -2026,6 +2026,68 @@ app.get("/api/proctor/:staffId/auto-grade-room", (req, res) => {
   const rows = room.studentIds.map((sid) => {
     const st = studentById(sid);
     return { studentId: sid, fullName: st?.fullName || sid, ...computeMcqScoreForStudent(sid) };
+  });
+  res.json({
+    ok: true,
+    roomId: room.id,
+    roomLabel: room.label,
+    examEndAt: state.examSession.examEndAt,
+    rows,
+  });
+});
+
+/** Proctor-only: sequential progress (current step), no correctness — for live monitoring. */
+app.get("/api/proctor/:staffId/room-exam-progress", (req, res) => {
+  const staffId = req.params.staffId;
+  const room = roomForStaff(staffId);
+  if (!room) return res.status(404).json({ ok: false, error: "Staff member is not assigned to a room." });
+  const rows = room.studentIds.map((sid) => {
+    const st = studentById(sid);
+    const fullName = st?.fullName || sid;
+    if (state.studentExamRevoked[sid]) {
+      const order = state.studentPaperSets[sid] || [];
+      const total = order.length;
+      return {
+        studentId: sid,
+        fullName,
+        phase: "revoked",
+        progressLabel: "Attempt ended — answers saved",
+        currentQuestion: null,
+        totalQuestions: total || null,
+      };
+    }
+    const order = state.studentPaperSets[sid];
+    const total = order?.length ?? 0;
+    if (!total) {
+      return {
+        studentId: sid,
+        fullName,
+        phase: "not_started",
+        progressLabel: "Not started on this server yet (paper loads after admit + release on the student device)",
+        currentQuestion: null,
+        totalQuestions: null,
+      };
+    }
+    let idx = state.studentPaperCursor[sid];
+    if (typeof idx !== "number" || idx < 0) idx = 0;
+    if (idx >= total) {
+      return {
+        studentId: sid,
+        fullName,
+        phase: "completed",
+        progressLabel: `Finished all ${total} questions`,
+        currentQuestion: total,
+        totalQuestions: total,
+      };
+    }
+    return {
+      studentId: sid,
+      fullName,
+      phase: "in_progress",
+      progressLabel: `On question ${idx + 1} of ${total}`,
+      currentQuestion: idx + 1,
+      totalQuestions: total,
+    };
   });
   res.json({
     ok: true,
