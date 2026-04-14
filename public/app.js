@@ -25,6 +25,12 @@ let studentExamLeaveGuardCleanup = null;
 /** @type {ReturnType<typeof setInterval> | null} */
 let studentRevokePollTimer = null;
 
+/** Exam UI is inside #view-app but #main-content is the parent — both need a class for full-width CSS. */
+function setStudentExamFullBleed(active) {
+  $("#view-app")?.classList.toggle("student-exam-layout-active", !!active);
+  $("#main-content")?.classList.toggle("student-exam-main-bleed", !!active);
+}
+
 function restoreStudentVideoHome() {
   const pip = $("#student-exam-pip-slot");
   const home = $("#student-video-home");
@@ -71,7 +77,7 @@ async function finalizeStudentExamRevokedUi(studentId, place) {
   $("#student-wait-lounge")?.classList.add("hidden");
   $("#student-preexam-block")?.classList.remove("hidden");
   $("#student-exam-ended-overlay")?.classList.remove("hidden");
-  $("#view-app")?.classList.remove("student-exam-layout-active");
+  setStudentExamFullBleed(false);
   $("#student-desk-chrome")?.classList.remove("hidden");
   const tb = $("#student-exam-timer-bar");
   if (tb) tb.innerHTML = "";
@@ -1268,7 +1274,7 @@ async function enterApp() {
         if (st.examRevoked) {
           $("#student-after-consent")?.classList.remove("hidden");
           $("#student-exam-ended-overlay")?.classList.remove("hidden");
-          $("#view-app")?.classList.remove("student-exam-layout-active");
+          setStudentExamFullBleed(false);
           $("#student-desk-chrome")?.classList.remove("hidden");
         }
       } catch {
@@ -1298,7 +1304,7 @@ function logout() {
   proctorRoomId = null;
   $("#btn-proctor-join")?.classList.remove("hidden");
   $("#proctor-room-heading")?.classList.add("hidden");
-  $("#view-app")?.classList.remove("student-exam-layout-active");
+  setStudentExamFullBleed(false);
   $("#student-desk-chrome")?.classList.remove("hidden");
   clearProctorWaitlistPoll();
   clearStudentEntryPollTimer();
@@ -2427,7 +2433,7 @@ function bindStudent() {
     }
     lounge?.classList.add("hidden");
     workspace?.classList.remove("hidden");
-    $("#view-app")?.classList.add("student-exam-layout-active");
+    setStudentExamFullBleed(true);
     $("#student-desk-chrome")?.classList.add("hidden");
     moveStudentVideoToPip();
     $("#student-room-label").textContent = `${place.roomName} (${place.roomId}) — exam in progress`;
@@ -2581,12 +2587,14 @@ function bindStudent() {
       submitBtn.setAttribute("aria-label", isLast ? "Finish exam and submit your final answer" : "Submit answer and go to next question");
       submitBtn.disabled = true;
       q.choices.forEach((ch, ci) => {
-        const row = document.createElement("div");
+        const row = document.createElement("label");
         row.className = "student-exam-choice-row";
         const num = document.createElement("span");
         num.className = "student-exam-choice-num";
         num.textContent = String(ci + 1);
-        const lab = document.createElement("label");
+        const txt = document.createElement("span");
+        txt.className = "student-exam-choice-text";
+        txt.textContent = ch;
         const inp = document.createElement("input");
         inp.type = "radio";
         inp.name = "seq-mcq-current";
@@ -2594,15 +2602,9 @@ function bindStudent() {
           selected = ci;
           submitBtn.disabled = false;
         });
-        lab.appendChild(inp);
-        lab.appendChild(document.createTextNode(ch));
         row.appendChild(num);
-        row.appendChild(lab);
-        row.addEventListener("click", (ev) => {
-          if (ev.target instanceof HTMLInputElement && ev.target.type === "radio") return;
-          inp.checked = true;
-          inp.dispatchEvent(new Event("change", { bubbles: true }));
-        });
+        row.appendChild(txt);
+        row.appendChild(inp);
         box.appendChild(row);
       });
       const submitRow = document.createElement("div");
