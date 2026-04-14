@@ -2589,12 +2589,10 @@ function bindStudent() {
       q.choices.forEach((ch, ci) => {
         const row = document.createElement("label");
         row.className = "student-exam-choice-row";
-        const num = document.createElement("span");
-        num.className = "student-exam-choice-num";
-        num.textContent = String(ci + 1);
         const txt = document.createElement("span");
         txt.className = "student-exam-choice-text";
-        txt.textContent = ch;
+        /* LTR WCAG pattern: control first, then label text (G162). Number prefixes the option text. */
+        txt.textContent = `${ci + 1}. ${ch}`;
         const inp = document.createElement("input");
         inp.type = "radio";
         inp.name = "seq-mcq-current";
@@ -2603,7 +2601,6 @@ function bindStudent() {
           submitBtn.disabled = false;
         });
         row.appendChild(inp);
-        row.appendChild(num);
         row.appendChild(txt);
         box.appendChild(row);
       });

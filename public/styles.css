@@ -904,21 +904,14 @@ label.student-exam-choice-row:focus-within {
   box-shadow: 0 0 0 1px rgba(94, 225, 208, 0.35);
 }
 
-.student-exam-choice-num {
-  font-weight: 700;
-  font-size: 1rem;
-  color: #334155;
-  text-align: center;
-  flex: 0 0 auto;
-  min-width: 1.75rem;
-}
-
 .student-exam-choice-text {
   flex: 1 1 auto;
   min-width: 0;
   font-size: clamp(0.95rem, 2vw, 1.05rem);
+  font-weight: 500;
   color: #0f172a;
   text-align: left;
+  line-height: 1.35;
 }
 
 .student-exam-wire-main label.student-exam-choice-row input[type="radio"] {
