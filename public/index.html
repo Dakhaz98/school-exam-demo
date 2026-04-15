@@ -59,12 +59,13 @@
         <div class="panel" style="margin-top: 0.75rem; background: rgba(94, 225, 208, 0.08); border-color: rgba(94, 225, 208, 0.25)">
           <h3 style="margin-top: 0">Quick trial</h3>
           <p class="hint" style="margin-bottom: 0.5rem">
-            On <strong>Rosters &amp; Excel</strong>, choose <strong>1–12</strong> students and click <strong>Load DMES trial scenario</strong>. Roster uses <strong>std1 … stdN</strong>; every student uses exam access key <strong>12345</strong> on this screen. Use <strong>Fill: teacher-1 / 2</strong> or <strong>Administration</strong> below — type student ids manually (no student quick-fill row).
+            On <strong>Rosters &amp; Excel</strong>, choose <strong>1–12</strong> students and click <strong>Load DMES trial scenario</strong>. Roster uses <strong>std1 … stdN</strong>; DMES sets the trial exam access key to <strong>12345</strong> for every student. Use the buttons below — for another student id (<strong>std2</strong> …) change the id after filling or type manually; key stays <strong>12345</strong>.
           </p>
           <div class="row" id="quick-trial-fills-row" style="flex-wrap: wrap; gap: 0.35rem">
             <button type="button" class="secondary" id="btn-fill-admin">Fill: Administration (admin)</button>
             <button type="button" class="secondary" id="btn-fill-teacher-1">Fill: teacher-1</button>
             <button type="button" class="secondary" id="btn-fill-teacher-2">Fill: teacher-2</button>
+            <button type="button" class="secondary" id="btn-fill-student-std1">Fill: std1 + exam key 12345</button>
           </div>
         </div>
         <details class="panel" style="margin-top: 0.75rem">
@@ -78,7 +79,7 @@
               <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the lobby gate allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). Camera wall shows up to <strong>12</strong> tiles in view (policy); extra feeds scroll.
             </li>
             <li>
-              <strong>Tab 3 – Student:</strong> Role <strong>Student</strong>, id <strong>std1</strong> … <strong>std12</strong> (however many you loaded), exam access key <strong>12345</strong> → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. Waiting area first; after admit and paper release, questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
+              <strong>Tab 3 – Student:</strong> Quick fill <strong>std1 + exam key 12345</strong> (or set Role <strong>Student</strong>, id <strong>std2</strong> … <strong>stdN</strong> manually with the same key) → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. Waiting area first; after admit and paper release, questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
             </li>
           </ol>
         </details>

@@ -221,6 +221,8 @@ let lastCameraViewCtx = null;
 
 const LS_API_ORIGIN = "examDemoApiOrigin";
 const LS_EXAM_ACCESS_KEY = "examDemoAccessKey";
+/** Same value the server sets for DMES trial (`runSeedDmesTrialScenario`). */
+const DMES_TRIAL_EXAM_ACCESS_KEY = "12345";
 
 function liveAccessKeyStatusHint() {
   if (!stateCache || typeof stateCache.requiresExamAccessKey !== "boolean") return "";
@@ -2829,8 +2831,26 @@ document.addEventListener("DOMContentLoaded", async () => {
     syncUserIdLabel();
     updateExamKeyRowVisibility();
   };
+  const fillDmesTrialStudent = (studentId) => {
+    const sid = String(studentId || "std1").trim() || "std1";
+    $("#role").value = "student";
+    $("#userId").value = sid;
+    $("#displayName").value = sid;
+    const ek = $("#exam-access-key");
+    if (ek) {
+      ek.value = DMES_TRIAL_EXAM_ACCESS_KEY;
+      try {
+        localStorage.setItem(LS_EXAM_ACCESS_KEY, DMES_TRIAL_EXAM_ACCESS_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    syncUserIdLabel();
+    updateExamKeyRowVisibility();
+  };
   $("#btn-fill-teacher-1")?.addEventListener("click", () => fillTeacher("teacher-1"));
   $("#btn-fill-teacher-2")?.addEventListener("click", () => fillTeacher("teacher-2"));
+  $("#btn-fill-student-std1")?.addEventListener("click", () => fillDmesTrialStudent("std1"));
 
   $("#btn-login").addEventListener("click", enterApp);
   $("#btn-logout").addEventListener("click", logout);
