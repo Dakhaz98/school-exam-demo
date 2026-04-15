@@ -1270,6 +1270,41 @@ app.get("/api/admin/template/questions", (_req, res) => {
   res.send(buf);
 });
 
+/**
+ * Public ICE config for browsers (STUN + optional TURN from env).
+ * Set EXAM_WEBRTC_TURN_URLS to a JSON array of RTCIceServer objects, e.g.
+ * [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]
+ * or use EXAM_TURN_URL + EXAM_TURN_USERNAME + EXAM_TURN_CREDENTIAL for a single server.
+ */
+app.get("/api/webrtc/ice", (_req, res) => {
+  const iceServers = [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    { urls: "stun:global.stun.twilio.com:3478" },
+  ];
+  const raw = process.env.EXAM_WEBRTC_TURN_URLS;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(String(raw));
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) {
+          if (entry && typeof entry === "object" && entry.urls) iceServers.push(entry);
+        }
+      }
+    } catch {
+      /* ignore invalid JSON */
+    }
+  }
+  const u = process.env.EXAM_TURN_URL;
+  if (u && String(u).trim()) {
+    iceServers.push({
+      urls: String(u).trim(),
+      username: process.env.EXAM_TURN_USERNAME ? String(process.env.EXAM_TURN_USERNAME) : "",
+      credential: process.env.EXAM_TURN_CREDENTIAL ? String(process.env.EXAM_TURN_CREDENTIAL) : "",
+    });
+  }
+  res.json({ iceServers });
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,

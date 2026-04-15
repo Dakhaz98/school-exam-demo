@@ -199,10 +199,34 @@ function clearStudentEntryPollTimer() {
   }
 }
 
-const WEBRTC_ICE_SERVERS = [
+let webRtcIceServers = [
   { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
   { urls: "stun:global.stun.twilio.com:3478" },
 ];
+
+/** @type {Promise<void> | null} */
+let webRtcIceHydratePromise = null;
+
+function getWebRtcIceServers() {
+  return webRtcIceServers;
+}
+
+async function hydrateWebRtcIceServers() {
+  if (webRtcIceHydratePromise) return webRtcIceHydratePromise;
+  webRtcIceHydratePromise = (async () => {
+    try {
+      const r = await fetch(apiUrl("/api/webrtc/ice"), { cache: "no-store" });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j && Array.isArray(j.iceServers) && j.iceServers.length) {
+        webRtcIceServers = j.iceServers;
+      }
+    } catch {
+      /* keep defaults */
+    }
+  })();
+  return webRtcIceHydratePromise;
+}
 
 /** @type {null | ((msg: any) => void)} */
 let webRtcStudentHandler = null;
@@ -219,7 +243,10 @@ let proctorMicMediaStream = null;
 async function ensureProctorMicMediaStream() {
   const t = proctorMicMediaStream?.getAudioTracks?.()[0];
   if (t && t.readyState === "live") return proctorMicMediaStream;
-  proctorMicMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  proctorMicMediaStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    video: false,
+  });
   return proctorMicMediaStream;
 }
 
@@ -233,8 +260,59 @@ function stopProctorMicMediaStream() {
   proctorMicMediaStream = null;
 }
 
+/**
+ * Student pre-exam camera/mic — try relaxed constraints so one failing device
+ * (often mic) does not block the whole stream.
+ * @returns {Promise<MediaStream>}
+ */
+async function acquireStudentExamMedia() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This browser does not support camera access (getUserMedia).");
+  }
+  const attempts = [
+    { video: true, audio: true },
+    { video: { facingMode: "user" }, audio: true },
+    { video: true, audio: false },
+    { video: { facingMode: "user" }, audio: false },
+  ];
+  let lastErr = null;
+  for (const constraints of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (!constraints.audio) {
+        try {
+          const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          audioOnly.getAudioTracks().forEach((t) => stream.addTrack(t));
+        } catch {
+          /* optional mic when video-only succeeded */
+        }
+      }
+      return stream;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? new Error("Could not access camera or microphone.");
+}
+
+function requestPlayStudentProctorVoice(au) {
+  const p = au.play();
+  if (!p || typeof p.then !== "function") return;
+  p.catch(() => {
+    if (au.dataset.proctorVoiceUnlock === "1") return;
+    au.dataset.proctorVoiceUnlock = "1";
+    const unlock = () => {
+      void au.play().catch(() => {});
+    };
+    document.body.addEventListener("click", unlock, { once: true, capture: true });
+    document.body.addEventListener("touchstart", unlock, { once: true, capture: true });
+  });
+}
+
 /** @type {null | (() => void)} */
 let proctorCamViewportResizeHandler = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let proctorCamViewportResizeTimer = null;
 
 /** @type {{ roomId: string, viewerUserId: string, role: string, container: HTMLElement } | null} */
 let lastCameraViewCtx = null;
@@ -539,6 +617,11 @@ function relayIceCandidate(toUserId, roomId, pc) {
 function wireStudentProctorVoicePlayback(pc) {
   pc.ontrack = (ev) => {
     if (ev.track.kind !== "audio") return;
+    try {
+      ev.track.enabled = true;
+    } catch {
+      /* ignore */
+    }
     let au = document.getElementById("student-proctor-voice-audio");
     if (!au) {
       au = document.createElement("audio");
@@ -548,8 +631,13 @@ function wireStudentProctorVoicePlayback(pc) {
       document.body.appendChild(au);
     }
     try {
+      au.volume = 1;
+    } catch {
+      /* ignore */
+    }
+    try {
       au.srcObject = ev.streams[0];
-      void au.play();
+      requestPlayStudentProctorVoice(au);
     } catch {
       /* ignore */
     }
@@ -585,7 +673,7 @@ function startStudentWebRtcPublisher(roomId, studentId, stream) {
         }
         peers.delete(viewerId);
       }
-      const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: getWebRtcIceServers() });
       peers.set(viewerId, pc);
       wireStudentProctorVoicePlayback(pc);
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
@@ -645,17 +733,20 @@ function findVideoTile(container, studentId) {
 
 /**
  * Grid columns from the **actual** number of camera tiles (10, 11, 12, …), not the admin policy cap.
+ * Uses documentElement.clientWidth (not window.innerWidth / matchMedia) so a vertical scrollbar
+ * does not flip breakpoints and re-layout the grid in a tight loop.
  */
 function proctorCameraGridColumnsForCount(tileCount) {
   const n = Math.max(0, Math.floor(Number(tileCount)) || 0);
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    if (n <= 0) return 4;
-    if (n <= 6) return Math.max(1, n);
-    return 6;
-  }
-  if (window.matchMedia("(max-width: 380px)").matches) return 1;
-  if (window.matchMedia("(max-width: 560px)").matches) return 2;
-  if (window.matchMedia("(max-width: 900px)").matches) {
+  const w =
+    typeof document !== "undefined" && document.documentElement
+      ? document.documentElement.clientWidth
+      : typeof window !== "undefined"
+        ? window.innerWidth
+        : 1024;
+  if (w <= 380) return 1;
+  if (w <= 560) return 2;
+  if (w <= 900) {
     if (n <= 0) return 3;
     if (n <= 6) return Math.min(3, Math.max(1, n));
     return 3;
@@ -685,6 +776,10 @@ function updateProctorCamCapacityHint(rosterCount) {
 }
 
 function detachProctorCamViewportWatch() {
+  if (proctorCamViewportResizeTimer != null) {
+    clearTimeout(proctorCamViewportResizeTimer);
+    proctorCamViewportResizeTimer = null;
+  }
   if (proctorCamViewportResizeHandler) {
     window.removeEventListener("resize", proctorCamViewportResizeHandler);
     proctorCamViewportResizeHandler = null;
@@ -697,42 +792,16 @@ function detachProctorCamViewportWatch() {
   }
 }
 
-/** Camera grid layout + optional scroll clamp (uses actual tile count). */
+/** Camera grid layout (columns + compact mode). Scroll/clamp is CSS-only on .proctor-cam-wall-scroll. */
 function syncProctorCamScrollViewport() {
   const c = lastCameraViewCtx?.container;
   if (!c) return;
-  const zone = c.closest(".proctor-cam-zone");
-  const scrollParent = c.parentElement?.classList?.contains?.("proctor-cam-wall-scroll") ? c.parentElement : null;
 
   const n = c.querySelectorAll(".video-tile").length;
   const cols = proctorCameraGridColumnsForCount(n);
   const rows = n > 0 ? Math.max(1, Math.ceil(n / cols)) : 1;
   c.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
   c.classList.toggle("proctor-video-wall--compact", n >= 7 || rows >= 2);
-  if (zone) zone.style.setProperty("--proctor-visible-rows", String(rows));
-
-  if (!scrollParent) return;
-
-  const wideDesktop = typeof window !== "undefined" && window.innerWidth > 900;
-  const noScrollFit = wideDesktop && rows <= 2;
-  if (noScrollFit) {
-    scrollParent.style.maxHeight = "none";
-    scrollParent.style.overflowY = "hidden";
-    return;
-  }
-
-  const tile = c.querySelector(".video-tile");
-  if (!tile) {
-    scrollParent.style.maxHeight = "";
-    scrollParent.style.overflowY = "auto";
-    return;
-  }
-  const cs = getComputedStyle(c);
-  const gapSrc = cs.rowGap && cs.rowGap !== "normal" ? cs.rowGap : cs.gap || "10px";
-  const gh = parseFloat(String(gapSrc).trim().split(/\s+/)[0]) || 10;
-  const h = Math.max(1, Math.round(tile.getBoundingClientRect().height));
-  scrollParent.style.maxHeight = `${rows * h + Math.max(0, rows - 1) * gh + 10}px`;
-  scrollParent.style.overflowY = "auto";
 }
 
 const INTEGRITY_HOT_MS = 45000;
@@ -750,11 +819,6 @@ function applyIntegrityHighlightToCameraTile(wallEl, studentId) {
     tile.classList.remove("proctor-tile-integrity-hot");
     tile._integrityHotTimer = null;
   }, INTEGRITY_HOT_MS);
-  try {
-    wallEl.prepend(tile);
-  } catch {
-    /* ignore */
-  }
   tile.classList.remove("video-tile-alert");
   void tile.offsetWidth;
   tile.classList.add("video-tile-alert");
@@ -766,6 +830,7 @@ function applyIntegrityHighlightToCameraTile(wallEl, studentId) {
  */
 async function startProctorViewCameras(roomId, viewerUserId, role, container) {
   viewerRtcTeardown?.();
+  await hydrateWebRtcIceServers();
   container.innerHTML = "";
   lastCameraViewCtx = { roomId, viewerUserId, role, container };
 
@@ -828,31 +893,29 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       wrap = document.createElement("div");
       wrap.className = "video-tile";
       wrap.dataset.student = studentId;
-      wrap.innerHTML = `<video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Hold to talk (microphone) — student hears you while pressed">Talk to student (hold)</button></div>`;
+      wrap.innerHTML = `<div class="video-tile-video-wrap"><video playsinline autoplay muted></video></div><p class="hint webrtc-status">Negotiating…</p><p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Hold to talk (microphone) — student hears you while pressed">Talk to student (hold)</button></div>`;
       container.appendChild(wrap);
       wrap.querySelector(".video-unmute-btn")?.addEventListener("click", () => {
         const v = wrap.querySelector("video");
-        if (v) v.muted = !v.muted;
+        if (!v) return;
+        v.muted = !v.muted;
+        if (!v.muted) {
+          try {
+            v.volume = 1;
+          } catch {
+            /* ignore */
+          }
+        }
       });
       const pttBtn = wrap.querySelector(".proctor-tile-ptt");
       if (pttBtn && !pttBtn.dataset.pttBound) {
         pttBtn.dataset.pttBound = "1";
-        const renegotiateProctorUpstream = async () => {
-          const pc = peers.get(studentId);
-          const tx = wrap._proctorAudioTx;
-          if (!pc || !tx?.sender) return;
-          if (!["connected", "completed"].includes(pc.connectionState)) return;
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit("webrtc:relay", { toUserId: studentId, roomId, type: "offer", sdp: offer.sdp });
-        };
         const stopPtt = async () => {
           if (!pttBtn.classList.contains("proctor-ptt-active")) return;
           const tx = wrap._proctorAudioTx;
           if (!tx?.sender) return;
           try {
             await tx.sender.replaceTrack(null);
-            await renegotiateProctorUpstream();
           } catch (e) {
             console.warn(e);
           }
@@ -863,13 +926,14 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
           const pc = peers.get(studentId);
           const tx = wrap._proctorAudioTx;
           if (!pc || !tx?.sender) return;
-          if (!["connected", "completed"].includes(pc.connectionState)) return;
+          const iceOk = ["connected", "completed"].includes(pc.iceConnectionState);
+          const connOk = ["connected", "completed"].includes(pc.connectionState);
+          if (!iceOk && !connOk) return;
           try {
             const mic = await ensureProctorMicMediaStream();
             const track = mic.getAudioTracks()[0];
             if (!track) return;
             await tx.sender.replaceTrack(track);
-            await renegotiateProctorUpstream();
           } catch (e) {
             alert(e?.message || String(e));
             return;
@@ -901,13 +965,21 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       }
       peers.delete(studentId);
     }
-    const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: getWebRtcIceServers() });
     peers.set(studentId, pc);
     pc.addTransceiver("video", { direction: "recvonly" });
-    const audioTx = pc.addTransceiver("audio", { direction: "recvonly" });
+    /** sendrecv so the student’s SDP includes a receive path for proctor → student audio (PTT). recvonly breaks that direction in Unified Plan. */
+    const audioTx = pc.addTransceiver("audio", { direction: "sendrecv" });
     wrap._proctorAudioTx = audioTx;
     pc.ontrack = (ev) => {
-      if (ev.streams[0] && videoEl) videoEl.srcObject = ev.streams[0];
+      if (ev.streams[0] && videoEl) {
+        videoEl.srcObject = ev.streams[0];
+        try {
+          videoEl.volume = 1;
+        } catch {
+          /* ignore */
+        }
+      }
       const tr = ev.track;
       if (tr && typeof tr.addEventListener === "function") {
         tr.addEventListener("ended", () => {
@@ -963,7 +1035,13 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
   }
 
   detachProctorCamViewportWatch();
-  proctorCamViewportResizeHandler = () => syncProctorCamScrollViewport();
+  proctorCamViewportResizeHandler = () => {
+    if (proctorCamViewportResizeTimer != null) clearTimeout(proctorCamViewportResizeTimer);
+    proctorCamViewportResizeTimer = setTimeout(() => {
+      proctorCamViewportResizeTimer = null;
+      syncProctorCamScrollViewport();
+    }, 140);
+  };
   window.addEventListener("resize", proctorCamViewportResizeHandler);
   requestAnimationFrame(() => {
     requestAnimationFrame(() => syncProctorCamScrollViewport());
@@ -1501,6 +1579,7 @@ async function enterApp() {
   $("#btn-logout").classList.remove("hidden");
 
   connectSocket();
+  await hydrateWebRtcIceServers();
   socket.emit("register", { role, userId, displayName }, () => {});
 
   $("#nav-admin").classList.toggle("hidden", role !== "admin");
@@ -2528,8 +2607,14 @@ async function loadStudentIntegrityPolicy() {
 function bindStudent() {
   $("#btn-consent").onclick = async () => {
     const v = $("#student-video");
+    if (!window.isSecureContext) {
+      alert(
+        "Camera and microphone need a secure page (HTTPS). Open the exam site with https:// or use localhost for development."
+      );
+      return;
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await acquireStudentExamMedia();
       v.srcObject = stream;
       $("#consent-modal").classList.add("hidden");
       $("#student-after-consent").classList.remove("hidden");
@@ -2539,7 +2624,11 @@ function bindStudent() {
       if (btn) btn.disabled = true;
       void loadStudentIntegrityPolicy();
     } catch (e) {
-      alert("Camera and microphone are required. " + (e?.message || ""));
+      const msg = e?.message || String(e);
+      alert(
+        "Could not open camera/microphone. Allow permissions in the browser, use HTTPS, and close other apps using the camera. Details: " +
+          msg
+      );
     }
   };
 

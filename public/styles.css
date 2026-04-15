@@ -1267,7 +1267,6 @@ label.student-exam-choice-row:focus-within {
 }
 
 .proctor-cam-zone {
-  --proctor-visible-rows: 3;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -1287,14 +1286,11 @@ label.student-exam-choice-row:focus-within {
  * of squashed tiles still fit and all 16 appear without scrolling.
  */
 .proctor-cam-wall-scroll {
-  --proctor-tile-row-est: min(400px, max(248px, 34vw));
-  display: flex;
-  flex-direction: column;
+  display: block;
   flex: 1 1 auto;
   min-height: 0;
-  max-height: calc(
-    var(--proctor-visible-rows, 3) * var(--proctor-tile-row-est) + (var(--proctor-visible-rows, 3) - 1) * clamp(8px, 1.4vw, 14px) + 8px
-  );
+  /* Fixed cap only (no JS --rows × measured height) — avoids scrollbar ↔ width ↔ column-count feedback loops. */
+  max-height: min(78dvh, 900px);
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
@@ -1326,21 +1322,13 @@ label.student-exam-choice-row:focus-within {
   width: 100%;
   min-height: 0;
   gap: clamp(6px, 1vw, 12px);
-  align-items: stretch;
+  /* start: avoid stretching tiles to the tallest row peer (reduces layout jump when one feed loads). */
+  align-items: start;
 }
 
 /* Tighter tiles when JS uses 6 columns (twelve feeds in two rows on desktop). */
 .video-wall.proctor-video-wall--compact .video-tile {
   padding: 4px 6px;
-}
-
-.video-wall.proctor-video-wall--compact .video-tile video {
-  /* Slightly taller preview while keeping 6×2 within typical desktop height */
-  max-height: min(142px, 21dvmin);
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  height: auto;
-  object-fit: cover;
 }
 
 .video-wall.proctor-video-wall--compact .video-tile-label {
@@ -1399,15 +1387,27 @@ label.student-exam-choice-row:focus-within {
   min-width: 0;
   box-sizing: border-box;
   border-radius: 8px;
+  contain: layout style;
 }
 
-.proctor-desk-room .video-tile video {
-  width: 100%;
+/* Fixed-height slot so incoming WebRTC video never changes tile geometry (stable buttons). */
+.proctor-desk-room .video-tile .video-tile-video-wrap {
+  position: relative;
   flex: 0 0 auto;
-  aspect-ratio: 16 / 10;
-  height: auto;
-  object-fit: cover;
+  width: 100%;
+  height: clamp(120px, 19vmin, 176px);
   border-radius: 6px;
+  background: #000;
+  overflow: hidden;
+}
+
+.proctor-desk-room .video-tile .video-tile-video-wrap video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
   background: #000;
 }
 
@@ -1415,11 +1415,22 @@ label.student-exam-choice-row:focus-within {
   color: #0f172a;
   font-size: 0.8rem;
   margin: 0.25rem 0 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .proctor-desk-room .video-tile .webrtc-status {
   color: #475569;
   font-size: 0.72rem;
+  margin: 0.15rem 0 0;
+  min-height: 2.5em;
+  line-height: 1.25;
+}
+
+.proctor-desk-room .video-wall.proctor-video-wall--compact .video-tile .video-tile-video-wrap {
+  height: min(132px, 20dvmin);
 }
 
 .proctor-desk-room .video-tile .video-unmute-btn,
