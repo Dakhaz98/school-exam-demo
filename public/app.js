@@ -244,7 +244,7 @@ async function ensureProctorMicMediaStream() {
   const t = proctorMicMediaStream?.getAudioTracks?.()[0];
   if (t && t.readyState === "live") return proctorMicMediaStream;
   proctorMicMediaStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: voiceAudioConstraints(),
     video: false,
   });
   return proctorMicMediaStream;
@@ -269,9 +269,10 @@ async function acquireStudentExamMedia() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("This browser does not support camera access (getUserMedia).");
   }
+  const va = voiceAudioConstraints();
   const attempts = [
-    { video: true, audio: true },
-    { video: { facingMode: "user" }, audio: true },
+    { video: true, audio: va },
+    { video: { facingMode: "user" }, audio: va },
     { video: true, audio: false },
     { video: { facingMode: "user" }, audio: false },
   ];
@@ -281,7 +282,7 @@ async function acquireStudentExamMedia() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       if (!constraints.audio) {
         try {
-          const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: voiceAudioConstraints(), video: false });
           audioOnly.getAudioTracks().forEach((t) => stream.addTrack(t));
         } catch {
           /* optional mic when video-only succeeded */
@@ -610,6 +611,36 @@ function relayIceCandidate(toUserId, roomId, pc) {
   };
 }
 
+/** Voice-oriented mic capture (mono + processing + higher sample rate when supported). */
+function voiceAudioConstraints() {
+  return {
+    channelCount: { ideal: 1 },
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    sampleRate: { ideal: 48000 },
+  };
+}
+
+/**
+ * Raise Opus voice bitrate on audio senders after negotiation (reduces “muddy” / thin sound on good links).
+ * @param {RTCPeerConnection} pc
+ */
+function tuneAudioRtpSenders(pc) {
+  if (!pc) return;
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== "audio") continue;
+    try {
+      const p = sender.getParameters();
+      const enc = p.encodings && p.encodings.length ? p.encodings.map((e) => ({ ...e })) : [{}];
+      enc[0] = { ...enc[0], maxBitrate: 96000 };
+      void sender.setParameters({ ...p, encodings: enc }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /**
  * Student publishes camera/mic to each proctor or admin viewer that sends an offer.
  * @returns {() => void}
@@ -659,6 +690,7 @@ function startStudentWebRtcPublisher(roomId, studentId, stream) {
           await existing.setRemoteDescription({ type: "offer", sdp: msg.sdp });
           const answer = await existing.createAnswer();
           await existing.setLocalDescription(answer);
+          tuneAudioRtpSenders(existing);
           socket.emit("webrtc:relay", { toUserId: viewerId, roomId, type: "answer", sdp: answer.sdp });
         } catch (e) {
           console.warn("student webrtc renegotiation failed", e);
@@ -681,6 +713,7 @@ function startStudentWebRtcPublisher(roomId, studentId, stream) {
       await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      tuneAudioRtpSenders(pc);
       socket.emit("webrtc:relay", { toUserId: viewerId, roomId, type: "answer", sdp: answer.sdp });
       return;
     }
@@ -845,6 +878,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       const pc = peers.get(studentId);
       if (!pc) return;
       await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+      tuneAudioRtpSenders(pc);
       const tile = findVideoTile(container, studentId);
       const st = tile?.querySelector?.(".webrtc-status");
       if (st) st.textContent = "Live";
@@ -934,6 +968,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
             const track = mic.getAudioTracks()[0];
             if (!track) return;
             await tx.sender.replaceTrack(track);
+            tuneAudioRtpSenders(pc);
           } catch (e) {
             alert(e?.message || String(e));
             return;
