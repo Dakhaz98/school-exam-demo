@@ -59,7 +59,7 @@
         <div class="panel" style="margin-top: 0.75rem; background: rgba(94, 225, 208, 0.08); border-color: rgba(94, 225, 208, 0.25)">
           <h3 style="margin-top: 0">Quick trial</h3>
           <p class="hint" style="margin-bottom: 0.5rem">
-            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load AIS trial scenario</strong> to preload the platform (16 students in one room), then use <strong>Fill: Student-1 … Student-16</strong> and <strong>Fill: teacher-1 / 2</strong> below (one device per student id for live video).
+            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load DMES trial scenario</strong> to preload the platform (16 students in one room), then use <strong>Fill: Student-1 … Student-16</strong> and <strong>Fill: teacher-1 / 2</strong> below (one device per student id for live video).
           </p>
           <div class="row" id="quick-trial-fills-row" style="flex-wrap: wrap; gap: 0.35rem">
             <button type="button" class="secondary" id="btn-fill-admin">Fill: Administration (admin)</button>
@@ -71,7 +71,7 @@
           </div>
         </div>
         <details class="panel" style="margin-top: 0.75rem">
-          <summary style="cursor: pointer; font-weight: 600">Three-tab exam rehearsal (after Load AIS trial scenario)</summary>
+          <summary style="cursor: pointer; font-weight: 600">Three-tab exam rehearsal (after Load DMES trial scenario)</summary>
           <ol class="hint" style="margin: 0.65rem 0 0; padding-left: 1.25rem; line-height: 1.65">
             <li>Open <strong>three tabs</strong> to the same site address (for example three times <kbd>Ctrl+T</kbd>). Each tab remembers its own role.</li>
             <li>
@@ -201,14 +201,14 @@
             <p class="hint">
               Students <strong>Student-1</strong> through <strong>Student-16</strong> (Grade 10, same room) and teachers <strong>teacher-1</strong>, <strong>teacher-2</strong> (both assigned proctors). One room, short schedule with lobby open for testing, 10-question MCQ paper, published. Either teacher may <strong>Admit</strong> students; one of them must click <strong>Release question paper</strong> or questions will not load. Use one browser/device per student id for each live camera.
             </p>
-            <button type="button" id="btn-seed-ais-trial">Load AIS trial scenario</button>
-            <p class="hint" id="seed-ais-result" style="margin-top: 0.65rem"></p>
+            <button type="button" id="btn-seed-dmes-trial">Load DMES trial scenario</button>
+            <p class="hint" id="seed-dmes-result" style="margin-top: 0.65rem"></p>
           </div>
           <div class="panel">
             <h2>Small demo (3 students + 3 teachers)</h2>
             <p class="hint">
               Three students <strong>DEMO-S1</strong>, <strong>DEMO-S2</strong>, <strong>DEMO-S3</strong> and three teachers <strong>DEMO-T1</strong>–<strong>DEMO-T3</strong> in
-              <strong>Grade 10</strong>, one room, three proctor slots filled, same 10-question paper style as the AIS trial, lobby open for testing, published.
+              <strong>Grade 10</strong>, one room, three proctor slots filled, same 10-question paper style as the DMES trial, lobby open for testing, published.
             </p>
             <button type="button" class="ghost" id="btn-seed-trio">Load trio demo roster</button>
             <p class="hint" id="seed-trio-result" style="margin-top: 0.65rem"></p>
@@ -544,7 +544,9 @@
                   <div class="proctor-cam-toolbar">
                     <div class="proctor-cam-toolbar-left">
                       <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
-                      <span class="proctor-cam-capacity-hint">This space holds up to 16 student cameras.</span>
+                      <span class="proctor-cam-capacity-hint"
+                        >Up to 16 cameras connect; the grid shows a viewport of 9–12 tiles (set by administration) — scroll for the rest.</span
+                      >
                     </div>
                     <div id="proctor-help-wrap" class="hidden proctor-cam-utilities">
                       <button type="button" class="proctor-btn-support proctor-btn-support--toolbar" id="btn-proctor-help" title="Sends a notice to administration">
@@ -555,7 +557,9 @@
                       </button>
                     </div>
                   </div>
-                  <div id="proctor-video-wall" class="video-wall proctor-video-wall"></div>
+                  <div class="proctor-cam-wall-scroll">
+                    <div id="proctor-video-wall" class="video-wall proctor-video-wall"></div>
+                  </div>
                 </div>
 
                 <div class="proctor-progress-dock">

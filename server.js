@@ -79,8 +79,8 @@ const INTEGRITY_POLICY = {
     "After the scheduled end time you may see your automatic multiple-choice score where a key is configured. Detailed answer keys may be released only after the exam closes, per school policy.",
 };
 
-/** Ready-made trial logins (POST /api/admin/seed-demo-roster with JSON body {"variant":"ais"}) */
-const AIS_TRIAL_MODEL_ID = "upload-ais-trial";
+/** Ready-made trial logins (POST /api/admin/seed-demo-roster with JSON body {"variant":"dmes"}) */
+const DMES_TRIAL_MODEL_ID = "upload-dmes-trial";
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 },
@@ -374,7 +374,7 @@ const state = {
   teachers: [],
   /** @type {{ id: string, label: string, questions: Question[], uploadedAt: string, uploadedByStaffId?: string }[]} */
   uploadedQuestionModels: [],
-  /** @type {{ targetGrade: string, roomCount: number, lobbyOpensMinutesBefore: number, examStartAt: string, examEndAt: string, selectedModelId: string | null, paperDrawCount: number | null, rooms: { id: string, label: string, studentIds: string[], proctorStaffIds: string[], proctorsRequired: number }[], published: boolean }} */
+  /** @type {{ targetGrade: string, roomCount: number, lobbyOpensMinutesBefore: number, examStartAt: string, examEndAt: string, selectedModelId: string | null, paperDrawCount: number | null, rooms: { id: string, label: string, studentIds: string[], proctorStaffIds: string[], proctorsRequired: number }[], published: boolean, proctorMaxCameraTilesVisible?: number }} */
   examSession: {
     targetGrade: "Grade 4",
     roomCount: 5,
@@ -385,6 +385,8 @@ const state = {
     paperDrawCount: null,
     rooms: [],
     published: false,
+    /** How many camera tiles fit in the proctor viewport before scrolling (admin 9–12 later). */
+    proctorMaxCameraTilesVisible: 9,
   },
   /** @type {Record<string, Record<string, number>>} */
   answers: {},
@@ -420,6 +422,12 @@ try {
   sqliteStore.hydrateState(state);
 } catch (e) {
   logger.logError("Initial SQLite hydrate threw", e);
+}
+{
+  const ex = state.examSession;
+  const v = ex.proctorMaxCameraTilesVisible;
+  if (typeof v !== "number" || !Number.isFinite(v)) ex.proctorMaxCameraTilesVisible = 9;
+  else ex.proctorMaxCameraTilesVisible = Math.min(12, Math.max(9, Math.floor(v)));
 }
 ensureRoomsBuilt();
 
@@ -590,7 +598,7 @@ function registerUploadedQuestionModel(questions, labelCore, opts = {}) {
   return id;
 }
 
-function aisTrialQuestionList() {
+function demoTenMcqQuestions() {
   return [
     { id: "q1", text: "What is 15 + 7?", choices: ["20", "22", "21", "23"], correctIndex: 1 },
     { id: "q2", text: "Which word is spelled correctly?", choices: ["Accomodate", "Accommodate", "Acommodate", "Acomodate"], correctIndex: 1 },
@@ -605,7 +613,7 @@ function aisTrialQuestionList() {
   ];
 }
 
-function runSeedAisTrialScenario() {
+function runSeedDmesTrialScenario() {
   /** Sixteen students in one room so proctor camera wall can be layout-tested at full capacity */
   const students = [];
   for (let i = 1; i <= 16; i++) {
@@ -638,11 +646,11 @@ function runSeedAisTrialScenario() {
   state.integrityEvents = [];
   state.students = students;
   state.teachers = teachers;
-  state.uploadedQuestionModels = state.uploadedQuestionModels.filter((m) => m.id !== AIS_TRIAL_MODEL_ID);
+  state.uploadedQuestionModels = state.uploadedQuestionModels.filter((m) => m.id !== DMES_TRIAL_MODEL_ID);
   state.uploadedQuestionModels.push({
-    id: AIS_TRIAL_MODEL_ID,
+    id: DMES_TRIAL_MODEL_ID,
     label: "Trial paper (10 MCQ)",
-    questions: aisTrialQuestionList(),
+    questions: demoTenMcqQuestions(),
     uploadedAt: new Date().toISOString(),
     uploadedByStaffId: teachers[0].staffId,
   });
@@ -654,7 +662,7 @@ function runSeedAisTrialScenario() {
   /* Short schedule so trial runs can reach scheduled end (MCQ auto-result unlock) in a few minutes */
   ex.examStartAt = new Date(now + 2 * 60000).toISOString();
   ex.examEndAt = new Date(now + 10 * 60000).toISOString();
-  ex.selectedModelId = AIS_TRIAL_MODEL_ID;
+  ex.selectedModelId = DMES_TRIAL_MODEL_ID;
   ex.paperDrawCount = null;
   ex.rooms = [];
   ensureRoomsBuilt();
@@ -719,7 +727,7 @@ function runSeedTrioScenario() {
   state.uploadedQuestionModels.push({
     id: TRIO_DEMO_MODEL_ID,
     label: "Trio demo paper (10 MCQ)",
-    questions: aisTrialQuestionList(),
+    questions: demoTenMcqQuestions(),
     uploadedAt: new Date().toISOString(),
     uploadedByStaffId: teachers[0].staffId,
   });
@@ -1089,6 +1097,11 @@ function publicSnapshot() {
       selectedModelId: ex.selectedModelId,
       paperDrawCount: ex.paperDrawCount != null ? ex.paperDrawCount : null,
       published: ex.published,
+      proctorMaxCameraTilesVisible: (() => {
+        const raw = Number(ex.proctorMaxCameraTilesVisible);
+        const base = Number.isFinite(raw) ? Math.floor(raw) : 9;
+        return Math.min(12, Math.max(9, base));
+      })(),
       studentsInTargetGrade: inGrade.length,
       rooms: ex.rooms.map((r) => ({
         id: r.id,
@@ -1417,17 +1430,17 @@ app.delete("/api/admin/question-models/:id", (req, res) => {
   res.json({ ok: true, state: publicSnapshot() });
 });
 
-/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. JSON body {"variant":"ais"} or {"variant":"trio"}. */
+/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. JSON body {"variant":"dmes"} or {"variant":"trio"}. */
 app.post("/api/admin/seed-demo-roster", (req, res) => {
   const b = req.body || {};
   const qv = String(req.query?.variant || req.query?.mode || "").toLowerCase();
-  const wantAis =
-    b.variant === "ais" || b.mode === "ais" || b.trial === "ais" || qv === "ais" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "ais";
+  const wantDmes =
+    b.variant === "dmes" || b.mode === "dmes" || b.trial === "dmes" || qv === "dmes" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "dmes";
   const wantTrio =
     b.variant === "trio" || b.mode === "trio" || qv === "trio" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "trio";
-  if (wantAis) {
-    const scenario = runSeedAisTrialScenario();
-    appendAudit("seed_ais_trial", "Trial Student-1..16 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
+  if (wantDmes) {
+    const scenario = runSeedDmesTrialScenario();
+    appendAudit("seed_dmes_trial", "DMES trial Student-1..16 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
     broadcastState();
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }

@@ -577,6 +577,46 @@ function findVideoTile(container, studentId) {
   return null;
 }
 
+function proctorEffectiveGridColumns() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return 4;
+  if (window.matchMedia("(max-width: 380px)").matches) return 1;
+  if (window.matchMedia("(max-width: 560px)").matches) return 2;
+  if (window.matchMedia("(max-width: 900px)").matches) return 3;
+  return 4;
+}
+
+function clampProctorTilesVisible(value) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return 9;
+  return Math.min(12, Math.max(9, n));
+}
+
+const INTEGRITY_HOT_MS = 45000;
+
+function applyIntegrityHighlightToCameraTile(wallEl, studentId) {
+  if (!wallEl || !studentId) return;
+  const tile = findVideoTile(wallEl, studentId);
+  if (!tile) return;
+  if (tile._integrityHotTimer) {
+    clearTimeout(tile._integrityHotTimer);
+    tile._integrityHotTimer = null;
+  }
+  tile.classList.add("proctor-tile-integrity-hot");
+  tile._integrityHotTimer = setTimeout(() => {
+    tile.classList.remove("proctor-tile-integrity-hot");
+    tile._integrityHotTimer = null;
+  }, INTEGRITY_HOT_MS);
+  try {
+    wallEl.prepend(tile);
+  } catch {
+    /* ignore */
+  }
+  tile.classList.remove("video-tile-alert");
+  void tile.offsetWidth;
+  tile.classList.add("video-tile-alert");
+  setTimeout(() => tile.classList.remove("video-tile-alert"), 5200);
+}
+
 /**
  * Proctor or admin: request one-way video/audio from each student in the room.
  */
@@ -584,6 +624,13 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
   viewerRtcTeardown?.();
   container.innerHTML = "";
   lastCameraViewCtx = { roomId, viewerUserId, role, container };
+
+  const zone = container.closest(".proctor-cam-zone");
+  if (zone) {
+    const cap = clampProctorTilesVisible(stateCache?.examSession?.proctorMaxCameraTilesVisible);
+    const rows = Math.max(1, Math.ceil(cap / proctorEffectiveGridColumns()));
+    zone.style.setProperty("--proctor-visible-rows", String(rows));
+  }
 
   const peers = new Map();
 
@@ -1379,27 +1426,28 @@ function bindAdminUploads() {
     await api("/api/admin/seed-demo-roster", { method: "POST" });
     await refreshState();
   };
-  const seedAisBtn = $("#btn-seed-ais-trial");
-  if (seedAisBtn) {
-    seedAisBtn.onclick = async () => {
-      const out = $("#seed-ais-result");
+  const seedDmesBtn = $("#btn-seed-dmes-trial");
+  if (seedDmesBtn) {
+    seedDmesBtn.onclick = async () => {
+      const out = $("#seed-dmes-result");
       try {
-        const r = await api("/api/admin/seed-demo-roster?variant=ais", {
+        const r = await api("/api/admin/seed-demo-roster?variant=dmes", {
           method: "POST",
-          body: JSON.stringify({ variant: "ais" }),
+          body: JSON.stringify({ variant: "dmes" }),
         });
+        const fallbackDmesStudents = Array.from({ length: 16 }, (_, i) => ({
+          userId: `Student-${i + 1}`,
+          displayName: `Student-${i + 1}`,
+          role: "student",
+        }));
         const sc =
           r.scenario && Array.isArray(r.scenario.students) && r.scenario.students.length
             ? r.scenario
-            : r.state?.studentsCount === 3 &&
+            : r.state?.studentsCount === 16 &&
                 r.state?.teachersCount === 2 &&
                 String(r.state?.examSession?.targetGrade || "") === "Grade 10"
               ? {
-                  students: [
-                    { userId: "Student-1", displayName: "Student-1", role: "student" },
-                    { userId: "Student-2", displayName: "Student-2", role: "student" },
-                    { userId: "Student-3", displayName: "Student-3", role: "student" },
-                  ],
+                  students: fallbackDmesStudents,
                   teachers: [
                     { userId: "teacher-1", displayName: "teacher-1", role: "proctor" },
                     { userId: "teacher-2", displayName: "teacher-2", role: "proctor" },
@@ -1414,7 +1462,7 @@ function bindAdminUploads() {
         if (out) {
           if (!sc) {
             out.innerHTML =
-              "<strong>Warning:</strong> The server did not return the AIS trial summary. You may be on an old build: restart the app from the latest project folder, set Server URL if needed, then try again.";
+              "<strong>Warning:</strong> The server did not return the DMES trial summary. You may be on an old build: restart the app from the latest project folder, set Server URL if needed, then try again.";
           } else {
             const studLines = (sc.students || [sc.student].filter(Boolean))
               .map((x) => `<code>${escapeHtml(x.userId)}</code> — ${escapeHtml(x.displayName || "")}`)
@@ -1772,6 +1820,14 @@ function openAdminRoomCommandCenter(roomId) {
     const line = document.createElement("div");
     line.textContent = `[integrity] ${ev.studentId || ""} ${ev.type}: ${ev.detail}`;
     log.prepend(line);
+    const w = $("#admin-room-video-wall");
+    if (
+      w &&
+      ev.studentId &&
+      (ev.type === "audio_activity" || ev.type === "motion_heuristic" || ev.type === "tab_switch")
+    ) {
+      applyIntegrityHighlightToCameraTile(w, ev.studentId);
+    }
   };
   socket.on("room:roster", onRoster);
   socket.on("integrity:event", onInt);
@@ -2024,13 +2080,13 @@ async function joinProctorDeskFromSession() {
     $("#btn-proctor-join")?.classList.remove("hidden");
     return;
   }
-    if (!gate.allowed) {
-      $("#proctor-gate-line").textContent = "You cannot join yet. See the banner above.";
-      $("#proctor-help-wrap")?.classList.add("hidden");
-      $("#proctor-cam-section")?.classList.add("hidden");
-      $("#btn-proctor-join")?.classList.remove("hidden");
-      return;
-    }
+  if (!gate.allowed) {
+    $("#proctor-gate-line").textContent = "You cannot join yet. See the banner above.";
+    $("#proctor-help-wrap")?.classList.add("hidden");
+    $("#proctor-cam-section")?.classList.add("hidden");
+    $("#btn-proctor-join")?.classList.remove("hidden");
+    return;
+  }
   let place;
   try {
     place = await api(`/api/proctor/${encodeURIComponent(s.userId)}/room`);
@@ -2039,6 +2095,11 @@ async function joinProctorDeskFromSession() {
     $("#proctor-cam-section")?.classList.add("hidden");
     $("#btn-proctor-join")?.classList.remove("hidden");
     return;
+  }
+  try {
+    await refreshState();
+  } catch {
+    /* keep previous stateCache if snapshot fails */
   }
   proctorRoomId = place.roomId;
   const headEl = $("#proctor-room-heading");
@@ -2086,13 +2147,7 @@ async function joinProctorDeskFromSession() {
   socket.on("integrity:event", (ev) => {
     if (ev.roomId !== place.roomId) return;
     if (ev.studentId && (ev.type === "audio_activity" || ev.type === "motion_heuristic" || ev.type === "tab_switch")) {
-      const tile = findVideoTile(camWall, ev.studentId);
-      if (tile) {
-        tile.classList.remove("video-tile-alert");
-        void tile.offsetWidth;
-        tile.classList.add("video-tile-alert");
-        setTimeout(() => tile.classList.remove("video-tile-alert"), 5200);
-      }
+      applyIntegrityHighlightToCameraTile(camWall, ev.studentId);
     }
   });
 
