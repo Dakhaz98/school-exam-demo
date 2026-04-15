@@ -1335,7 +1335,8 @@ label.student-exam-choice-row:focus-within {
 }
 
 .video-wall.proctor-video-wall--compact .video-tile video {
-  max-height: min(104px, 15dvmin);
+  /* Slightly taller preview while keeping 6×2 within typical desktop height */
+  max-height: min(128px, 19dvmin);
   aspect-ratio: 16 / 9;
   width: 100%;
   height: auto;
