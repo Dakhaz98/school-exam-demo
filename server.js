@@ -2284,7 +2284,16 @@ app.use((err, req, res, _next) => {
   res.status(500).type("text").send("Server error");
 });
 
-app.use(express.static(path.join(__dirname, "public")));
+app.use(
+  express.static(path.join(__dirname, "public"), {
+    setHeaders(res, filePath) {
+      /* Avoid stale HTML after deploys — browsers otherwise may keep an old "Load AIS…" shell. */
+      if (String(filePath).toLowerCase().endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      }
+    },
+  })
+);
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
