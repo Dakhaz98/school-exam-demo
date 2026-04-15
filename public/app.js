@@ -213,6 +213,26 @@ let studentWebRtcStop = null;
 /** @type {null | (() => void)} */
 let viewerRtcTeardown = null;
 
+/** Proctor microphone (shared) for push-to-talk toward students. */
+let proctorMicMediaStream = null;
+
+async function ensureProctorMicMediaStream() {
+  const t = proctorMicMediaStream?.getAudioTracks?.()[0];
+  if (t && t.readyState === "live") return proctorMicMediaStream;
+  proctorMicMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  return proctorMicMediaStream;
+}
+
+function stopProctorMicMediaStream() {
+  if (!proctorMicMediaStream) return;
+  try {
+    proctorMicMediaStream.getTracks().forEach((tr) => tr.stop());
+  } catch {
+    /* ignore */
+  }
+  proctorMicMediaStream = null;
+}
+
 /** @type {null | (() => void)} */
 let proctorCamViewportResizeHandler = null;
 
@@ -516,6 +536,26 @@ function relayIceCandidate(toUserId, roomId, pc) {
  * Student publishes camera/mic to each proctor or admin viewer that sends an offer.
  * @returns {() => void}
  */
+function wireStudentProctorVoicePlayback(pc) {
+  pc.ontrack = (ev) => {
+    if (ev.track.kind !== "audio") return;
+    let au = document.getElementById("student-proctor-voice-audio");
+    if (!au) {
+      au = document.createElement("audio");
+      au.id = "student-proctor-voice-audio";
+      au.autoplay = true;
+      au.setAttribute("playsinline", "");
+      document.body.appendChild(au);
+    }
+    try {
+      au.srcObject = ev.streams[0];
+      void au.play();
+    } catch {
+      /* ignore */
+    }
+  };
+}
+
 function startStudentWebRtcPublisher(roomId, studentId, stream) {
   const peers = new Map();
 
@@ -525,10 +565,21 @@ function startStudentWebRtcPublisher(roomId, studentId, stream) {
     if (!viewerId || viewerId === studentId) return;
 
     if (msg.type === "offer" && msg.sdp) {
-      const old = peers.get(viewerId);
-      if (old) {
+      const existing = peers.get(viewerId);
+      if (existing && existing.signalingState === "stable" && existing.localDescription && existing.remoteDescription) {
         try {
-          old.close();
+          await existing.setRemoteDescription({ type: "offer", sdp: msg.sdp });
+          const answer = await existing.createAnswer();
+          await existing.setLocalDescription(answer);
+          socket.emit("webrtc:relay", { toUserId: viewerId, roomId, type: "answer", sdp: answer.sdp });
+        } catch (e) {
+          console.warn("student webrtc renegotiation failed", e);
+        }
+        return;
+      }
+      if (existing) {
+        try {
+          existing.close();
         } catch {
           /* ignore */
         }
@@ -536,6 +587,7 @@ function startStudentWebRtcPublisher(roomId, studentId, stream) {
       }
       const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
       peers.set(viewerId, pc);
+      wireStudentProctorVoicePlayback(pc);
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       relayIceCandidate(viewerId, roomId, pc);
       await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
@@ -572,6 +624,15 @@ function startStudentWebRtcPublisher(roomId, studentId, stream) {
       }
     }
     peers.clear();
+    const au = document.getElementById("student-proctor-voice-audio");
+    if (au) {
+      try {
+        au.srcObject = null;
+        au.remove();
+      } catch {
+        /* ignore */
+      }
+    }
   };
 }
 
@@ -767,15 +828,67 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       wrap = document.createElement("div");
       wrap.className = "video-tile";
       wrap.dataset.student = studentId;
-      wrap.innerHTML = `<video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Push-to-talk to this student">Talk to student</button></div>`;
+      wrap.innerHTML = `<video playsinline autoplay muted></video><p class="hint webrtc-status">Negotiating…</p><p class="video-tile-label">${escapeHtml(fullName)} <span class="hint">(${escapeHtml(studentId)})</span></p><div class="proctor-tile-actions"><button type="button" class="secondary video-unmute-btn">Unmute / listen</button><button type="button" class="secondary proctor-tile-ptt" title="Hold to talk (microphone) — student hears you while pressed">Talk to student (hold)</button></div>`;
       container.appendChild(wrap);
       wrap.querySelector(".video-unmute-btn")?.addEventListener("click", () => {
         const v = wrap.querySelector("video");
         if (v) v.muted = !v.muted;
       });
-      wrap.querySelector(".proctor-tile-ptt")?.addEventListener("click", () => {
-        alert("Push-to-talk from proctor to one student needs extra WebRTC audio upstream — not wired in this trial. Use private chat or administration support.");
-      });
+      const pttBtn = wrap.querySelector(".proctor-tile-ptt");
+      if (pttBtn && !pttBtn.dataset.pttBound) {
+        pttBtn.dataset.pttBound = "1";
+        const renegotiateProctorUpstream = async () => {
+          const pc = peers.get(studentId);
+          const tx = wrap._proctorAudioTx;
+          if (!pc || !tx?.sender) return;
+          if (!["connected", "completed"].includes(pc.connectionState)) return;
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit("webrtc:relay", { toUserId: studentId, roomId, type: "offer", sdp: offer.sdp });
+        };
+        const stopPtt = async () => {
+          if (!pttBtn.classList.contains("proctor-ptt-active")) return;
+          const tx = wrap._proctorAudioTx;
+          if (!tx?.sender) return;
+          try {
+            await tx.sender.replaceTrack(null);
+            await renegotiateProctorUpstream();
+          } catch (e) {
+            console.warn(e);
+          }
+          pttBtn.classList.remove("proctor-ptt-active");
+        };
+        const startPtt = async () => {
+          if (pttBtn.classList.contains("proctor-ptt-active")) return;
+          const pc = peers.get(studentId);
+          const tx = wrap._proctorAudioTx;
+          if (!pc || !tx?.sender) return;
+          if (!["connected", "completed"].includes(pc.connectionState)) return;
+          try {
+            const mic = await ensureProctorMicMediaStream();
+            const track = mic.getAudioTracks()[0];
+            if (!track) return;
+            await tx.sender.replaceTrack(track);
+            await renegotiateProctorUpstream();
+          } catch (e) {
+            alert(e?.message || String(e));
+            return;
+          }
+          pttBtn.classList.add("proctor-ptt-active");
+        };
+        pttBtn.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          void startPtt();
+        });
+        pttBtn.addEventListener("touchstart", (e) => {
+          e.preventDefault();
+          void startPtt();
+        });
+        pttBtn.addEventListener("mouseup", () => void stopPtt());
+        pttBtn.addEventListener("mouseleave", () => void stopPtt());
+        pttBtn.addEventListener("touchend", () => void stopPtt());
+        pttBtn.addEventListener("touchcancel", () => void stopPtt());
+      }
     }
     const videoEl = wrap.querySelector("video");
     const statusEl = wrap.querySelector(".webrtc-status");
@@ -791,7 +904,8 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
     const pc = new RTCPeerConnection({ iceServers: WEBRTC_ICE_SERVERS });
     peers.set(studentId, pc);
     pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addTransceiver("audio", { direction: "recvonly" });
+    const audioTx = pc.addTransceiver("audio", { direction: "recvonly" });
+    wrap._proctorAudioTx = audioTx;
     pc.ontrack = (ev) => {
       if (ev.streams[0] && videoEl) videoEl.srcObject = ev.streams[0];
       const tr = ev.track;
@@ -860,6 +974,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
     socket.off("room:roster", onRoomRoster);
     socket.off("webrtc:push_student_ready", onStudentCamReady);
     webRtcViewerHandler = null;
+    stopProctorMicMediaStream();
     for (const p of peers.values()) {
       try {
         p.close();

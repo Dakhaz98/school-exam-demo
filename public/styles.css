@@ -1364,6 +1364,12 @@ label.student-exam-choice-row:focus-within {
   padding: 0.12rem 0.35rem;
 }
 
+.proctor-desk-room .proctor-tile-ptt.proctor-ptt-active {
+  background: #22c55e !important;
+  color: #0f172a !important;
+  border-color: #16a34a !important;
+}
+
 @media (max-width: 900px) {
   .proctor-video-wall {
     grid-template-columns: repeat(3, minmax(0, 1fr));
