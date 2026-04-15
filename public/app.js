@@ -580,18 +580,27 @@ function findVideoTile(container, studentId) {
   return null;
 }
 
-/** Columns for the proctor/admin camera grid (cap = visible policy max, usually 12). */
-function proctorCameraGridColumns(cap) {
-  const c = clampProctorTilesVisible(cap);
+/**
+ * Grid columns from the **actual** number of camera tiles (10, 11, 12, …), not the admin policy cap.
+ */
+function proctorCameraGridColumnsForCount(tileCount) {
+  const n = Math.max(0, Math.floor(Number(tileCount)) || 0);
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return c <= 12 ? 6 : 4;
+    if (n <= 0) return 4;
+    if (n <= 6) return Math.max(1, n);
+    return 6;
   }
   if (window.matchMedia("(max-width: 380px)").matches) return 1;
   if (window.matchMedia("(max-width: 560px)").matches) return 2;
-  if (window.matchMedia("(max-width: 900px)").matches) return 3;
-  /* Wide desktop + ≤12 feeds → 6×2 uses less vertical space than 4×3 (fits viewport without scroll). */
-  if (c <= 12) return 6;
-  return 4;
+  if (window.matchMedia("(max-width: 900px)").matches) {
+    if (n <= 0) return 3;
+    if (n <= 6) return Math.min(3, Math.max(1, n));
+    return 3;
+  }
+  if (n <= 0) return 4;
+  if (n <= 6) return Math.max(1, n);
+  if (n <= 12) return 6;
+  return 6;
 }
 
 function clampProctorTilesVisible(value) {
@@ -604,15 +613,12 @@ function updateProctorCamCapacityHint(rosterCount) {
   const el = $("#proctor-cam-capacity-hint");
   if (!el) return;
   const n = Math.max(0, Math.floor(Number(rosterCount)) || 0);
-  if (n >= 12) {
-    el.innerHTML =
-      "This room’s roster has <strong>12</strong> students → <strong>12</strong> camera tiles. On a wide window the grid is <strong>6×2</strong> with no inner scroll when the pane is tall enough; small windows may scroll.";
-  } else if (n > 0) {
-    el.innerHTML = `This room’s roster has <strong>${n}</strong> student(s) → <strong>${n}</strong> camera tiles (not twelve). Open <strong>Rosters &amp; Excel</strong>, set <strong>Number of students</strong> to <strong>12</strong>, click <strong>Load DMES trial scenario</strong> again, then use <strong>Refresh camera connections</strong> on the proctor desk.`;
-  } else {
+  if (n === 0) {
     el.textContent =
-      "No students on this room’s roster yet. One tile appears per roster student when the list loads. DMES supports up to 12.";
+      "No students on this room’s roster yet. One camera tile is created per student when the roster loads.";
+    return;
   }
+  el.innerHTML = `This room’s roster: <strong>${n}</strong> student(s) → <strong>${n}</strong> camera tiles. The grid (columns / rows / compact tiles) follows this count automatically — not a fixed twelve. Wide windows: usually no inner scroll when two rows or fewer fit; narrow or very short windows may scroll.`;
 }
 
 function detachProctorCamViewportWatch() {
@@ -628,18 +634,18 @@ function detachProctorCamViewportWatch() {
   }
 }
 
-/** Camera grid layout + optional scroll clamp (wide + ≤2 policy rows → no inner scroll). */
+/** Camera grid layout + optional scroll clamp (uses actual tile count). */
 function syncProctorCamScrollViewport() {
   const c = lastCameraViewCtx?.container;
   if (!c) return;
   const zone = c.closest(".proctor-cam-zone");
   const scrollParent = c.parentElement?.classList?.contains?.("proctor-cam-wall-scroll") ? c.parentElement : null;
 
-  const cap = clampProctorTilesVisible(stateCache?.examSession?.proctorMaxCameraTilesVisible);
-  const cols = proctorCameraGridColumns(cap);
-  const rows = Math.max(1, Math.ceil(cap / cols));
+  const n = c.querySelectorAll(".video-tile").length;
+  const cols = proctorCameraGridColumnsForCount(n);
+  const rows = n > 0 ? Math.max(1, Math.ceil(n / cols)) : 1;
   c.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  c.classList.toggle("proctor-video-wall--compact", cols >= 6);
+  c.classList.toggle("proctor-video-wall--compact", n >= 7 || rows >= 2);
   if (zone) zone.style.setProperty("--proctor-visible-rows", String(rows));
 
   if (!scrollParent) return;
