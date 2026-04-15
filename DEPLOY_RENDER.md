@@ -12,7 +12,7 @@ This app is a **single Node process**: Express serves `/public` and Socket.IO sh
 1. Push this repo to GitHub.
 2. Render Dashboard → **New** → **Blueprint**.
 3. Connect the repository and select the branch.
-4. Confirm the web service `school-exam-demo` (free). Deploy.
+4. Confirm the web service `school-exam-demo1` (free). Deploy.
 
 ## Option B — Manual Web Service
 
@@ -23,7 +23,7 @@ This app is a **single Node process**: Express serves `/public` and Socket.IO sh
    - **Start command:** `npm start`
    - **Instance type:** Free
 3. **Health check path:** `/api/health`
-4. Deploy. Your URL will look like `https://school-exam-demo.onrender.com`.
+4. Deploy. Your URL will look like `https://school-exam-demo1.onrender.com`.
 
 Render sets `PORT` automatically; `server.js` already uses `process.env.PORT`.
 

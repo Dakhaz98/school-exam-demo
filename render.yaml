@@ -3,7 +3,7 @@
 
 services:
   - type: web
-    name: school-exam-demo
+    name: school-exam-demo1
     env: node
     region: oregon
     plan: free
