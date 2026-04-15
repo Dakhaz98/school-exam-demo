@@ -213,6 +213,9 @@ let studentWebRtcStop = null;
 /** @type {null | (() => void)} */
 let viewerRtcTeardown = null;
 
+/** @type {null | (() => void)} */
+let proctorCamViewportResizeHandler = null;
+
 /** @type {{ roomId: string, viewerUserId: string, role: string, container: HTMLElement } | null} */
 let lastCameraViewCtx = null;
 
@@ -587,8 +590,40 @@ function proctorEffectiveGridColumns() {
 
 function clampProctorTilesVisible(value) {
   const n = Math.floor(Number(value));
-  if (!Number.isFinite(n)) return 9;
+  if (!Number.isFinite(n)) return 12;
   return Math.min(12, Math.max(9, n));
+}
+
+function detachProctorCamViewportWatch() {
+  if (proctorCamViewportResizeHandler) {
+    window.removeEventListener("resize", proctorCamViewportResizeHandler);
+    proctorCamViewportResizeHandler = null;
+  }
+  const c = lastCameraViewCtx?.container;
+  const scrollEl = c?.parentElement;
+  if (scrollEl?.classList?.contains?.("proctor-cam-wall-scroll")) scrollEl.style.maxHeight = "";
+}
+
+/** Fit the scroll wrapper to exactly N rows of tiles (policy max 12 → 3 rows × 4 cols). */
+function syncProctorCamScrollViewport() {
+  const c = lastCameraViewCtx?.container;
+  const zone = c?.closest?.(".proctor-cam-zone");
+  const scrollEl = c?.parentElement;
+  if (!c || !zone || !scrollEl?.classList?.contains?.("proctor-cam-wall-scroll")) return;
+  const cap = clampProctorTilesVisible(stateCache?.examSession?.proctorMaxCameraTilesVisible);
+  const cols = proctorEffectiveGridColumns();
+  const rows = Math.max(1, Math.ceil(cap / cols));
+  zone.style.setProperty("--proctor-visible-rows", String(rows));
+  const tile = c.querySelector(".video-tile");
+  if (!tile) {
+    scrollEl.style.maxHeight = "";
+    return;
+  }
+  const cs = getComputedStyle(c);
+  const gapSrc = cs.rowGap && cs.rowGap !== "normal" ? cs.rowGap : cs.gap || "10px";
+  const gh = parseFloat(String(gapSrc).trim().split(/\s+/)[0]) || 10;
+  const h = Math.max(1, Math.round(tile.getBoundingClientRect().height));
+  scrollEl.style.maxHeight = `${rows * h + Math.max(0, rows - 1) * gh + 10}px`;
 }
 
 const INTEGRITY_HOT_MS = 45000;
@@ -748,7 +783,10 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
     try {
       const roster = await api(`/api/exam/room/${encodeURIComponent(roomId)}/students`);
       const row = (roster.students || []).find((x) => x.studentId === p.studentId);
-      if (row) await connectToStudent(row.studentId, row.fullName);
+      if (row) {
+        await connectToStudent(row.studentId, row.fullName);
+        requestAnimationFrame(() => syncProctorCamScrollViewport());
+      }
     } catch {
       /* ignore */
     }
@@ -767,7 +805,15 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
     container.innerHTML = `<p class="hint">Camera roster error: ${escapeHtml(e.message || String(e))}</p>`;
   }
 
+  detachProctorCamViewportWatch();
+  proctorCamViewportResizeHandler = () => syncProctorCamScrollViewport();
+  window.addEventListener("resize", proctorCamViewportResizeHandler);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => syncProctorCamScrollViewport());
+  });
+
   viewerRtcTeardown = () => {
+    detachProctorCamViewportWatch();
     socket.off("room:roster", onRoomRoster);
     socket.off("webrtc:push_student_ready", onStudentCamReady);
     webRtcViewerHandler = null;
@@ -1383,6 +1429,7 @@ function logout() {
   studentWebRtcStop = null;
   viewerRtcTeardown?.();
   viewerRtcTeardown = null;
+  detachProctorCamViewportWatch();
   webRtcStudentHandler = null;
   webRtcViewerHandler = null;
   lastCameraViewCtx = null;

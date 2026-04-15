@@ -385,8 +385,8 @@ const state = {
     paperDrawCount: null,
     rooms: [],
     published: false,
-    /** How many camera tiles fit in the proctor viewport before scrolling (admin 9–12 later). */
-    proctorMaxCameraTilesVisible: 9,
+    /** How many camera tiles fit in the proctor viewport before scrolling (admin 9–12 later). Default 12 = policy maximum. */
+    proctorMaxCameraTilesVisible: 12,
   },
   /** @type {Record<string, Record<string, number>>} */
   answers: {},
@@ -426,7 +426,7 @@ try {
 {
   const ex = state.examSession;
   const v = ex.proctorMaxCameraTilesVisible;
-  if (typeof v !== "number" || !Number.isFinite(v)) ex.proctorMaxCameraTilesVisible = 9;
+  if (typeof v !== "number" || !Number.isFinite(v)) ex.proctorMaxCameraTilesVisible = 12;
   else ex.proctorMaxCameraTilesVisible = Math.min(12, Math.max(9, Math.floor(v)));
 }
 ensureRoomsBuilt();
@@ -671,6 +671,7 @@ function runSeedDmesTrialScenario() {
     r.proctorStaffIds = [teachers[0].staffId, teachers[1].staffId];
   }
   ex.published = true;
+  ex.proctorMaxCameraTilesVisible = 12;
   resetExamAdmissionState();
   const primary = students[0];
   const primaryT = teachers[0];
@@ -1099,7 +1100,7 @@ function publicSnapshot() {
       published: ex.published,
       proctorMaxCameraTilesVisible: (() => {
         const raw = Number(ex.proctorMaxCameraTilesVisible);
-        const base = Number.isFinite(raw) ? Math.floor(raw) : 9;
+        const base = Number.isFinite(raw) ? Math.floor(raw) : 12;
         return Math.min(12, Math.max(9, base));
       })(),
       studentsInTargetGrade: inGrade.length,

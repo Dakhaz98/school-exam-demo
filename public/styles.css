@@ -1278,14 +1278,20 @@ label.student-exam-choice-row:focus-within {
   border: 1px solid #475569;
 }
 
-/* Viewport height for N rows of camera tiles; extra tiles stay in the wall and scroll into view. */
+/*
+ * Viewport height for N rows of camera tiles (policy max 12 = 3 rows × 4 cols on desktop).
+ * Row estimate must be ≥ real tile height (video 16:10 + buttons + labels); otherwise 4 rows
+ * of squashed tiles still fit and all 16 appear without scrolling.
+ */
 .proctor-cam-wall-scroll {
+  --proctor-tile-row-est: min(400px, max(248px, 34vw));
   max-height: calc(
-    var(--proctor-visible-rows, 3) * clamp(118px, 17vw, 198px) + (var(--proctor-visible-rows, 3) - 1) * clamp(6px, 1.2vw, 14px) + 2px
+    var(--proctor-visible-rows, 3) * var(--proctor-tile-row-est) + (var(--proctor-visible-rows, 3) - 1) * clamp(8px, 1.4vw, 14px) + 8px
   );
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  flex: 0 1 auto;
   scrollbar-gutter: stable;
 }
 
