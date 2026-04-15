@@ -1131,6 +1131,7 @@ label.student-exam-choice-row:focus-within {
 .proctor-desk-main {
   flex: 1 1 360px;
   min-width: 0;
+  min-height: 0;
   width: 100%;
   max-width: 100%;
   display: flex;
@@ -1267,6 +1268,8 @@ label.student-exam-choice-row:focus-within {
 
 .proctor-cam-zone {
   --proctor-visible-rows: 3;
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   align-self: stretch;
   width: 100%;
@@ -1285,13 +1288,15 @@ label.student-exam-choice-row:focus-within {
  */
 .proctor-cam-wall-scroll {
   --proctor-tile-row-est: min(400px, max(248px, 34vw));
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: calc(
     var(--proctor-visible-rows, 3) * var(--proctor-tile-row-est) + (var(--proctor-visible-rows, 3) - 1) * clamp(8px, 1.4vw, 14px) + 8px
   );
   overflow-y: auto;
   overflow-x: hidden;
-  min-height: 0;
-  flex: 0 1 auto;
   scrollbar-gutter: stable;
 }
 
@@ -1317,10 +1322,45 @@ label.student-exam-choice-row:focus-within {
 .proctor-video-wall {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  flex: 1 1 auto;
   width: 100%;
-  gap: clamp(8px, 1.2vw, 14px);
-  align-items: stretch;
   min-height: 0;
+  gap: clamp(6px, 1vw, 12px);
+  align-items: stretch;
+}
+
+/* Tighter tiles when JS uses 6 columns (twelve feeds in two rows on desktop). */
+.video-wall.proctor-video-wall--compact .video-tile {
+  padding: 4px 6px;
+}
+
+.video-wall.proctor-video-wall--compact .video-tile video {
+  max-height: min(104px, 15dvmin);
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+.video-wall.proctor-video-wall--compact .video-tile-label {
+  font-size: 0.72rem;
+  margin: 0.12rem 0 0;
+}
+
+.video-wall.proctor-video-wall--compact .video-tile .webrtc-status {
+  font-size: 0.66rem;
+  margin: 0.1rem 0 0;
+}
+
+.video-wall.proctor-video-wall--compact .proctor-tile-actions {
+  margin-top: 0.25rem;
+  gap: 0.25rem;
+}
+
+.video-wall.proctor-video-wall--compact .video-tile .video-unmute-btn,
+.video-wall.proctor-video-wall--compact .video-tile .proctor-tile-ptt {
+  font-size: 0.65rem;
+  padding: 0.12rem 0.35rem;
 }
 
 @media (max-width: 900px) {

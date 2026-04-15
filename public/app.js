@@ -580,11 +580,17 @@ function findVideoTile(container, studentId) {
   return null;
 }
 
-function proctorEffectiveGridColumns() {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return 4;
+/** Columns for the proctor/admin camera grid (cap = visible policy max, usually 12). */
+function proctorCameraGridColumns(cap) {
+  const c = clampProctorTilesVisible(cap);
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return c <= 12 ? 6 : 4;
+  }
   if (window.matchMedia("(max-width: 380px)").matches) return 1;
   if (window.matchMedia("(max-width: 560px)").matches) return 2;
   if (window.matchMedia("(max-width: 900px)").matches) return 3;
+  /* Wide desktop + ≤12 feeds → 6×2 uses less vertical space than 4×3 (fits viewport without scroll). */
+  if (c <= 12) return 6;
   return 4;
 }
 
@@ -601,29 +607,48 @@ function detachProctorCamViewportWatch() {
   }
   const c = lastCameraViewCtx?.container;
   const scrollEl = c?.parentElement;
-  if (scrollEl?.classList?.contains?.("proctor-cam-wall-scroll")) scrollEl.style.maxHeight = "";
+  if (scrollEl?.classList?.contains?.("proctor-cam-wall-scroll")) {
+    scrollEl.style.maxHeight = "";
+    scrollEl.style.overflowY = "";
+  }
 }
 
-/** Fit the scroll wrapper to exactly N rows of tiles (policy max 12 → 3 rows × 4 cols). */
+/** Camera grid layout + optional scroll clamp (wide + ≤2 policy rows → no inner scroll). */
 function syncProctorCamScrollViewport() {
   const c = lastCameraViewCtx?.container;
-  const zone = c?.closest?.(".proctor-cam-zone");
-  const scrollEl = c?.parentElement;
-  if (!c || !zone || !scrollEl?.classList?.contains?.("proctor-cam-wall-scroll")) return;
+  if (!c) return;
+  const zone = c.closest(".proctor-cam-zone");
+  const scrollParent = c.parentElement?.classList?.contains?.("proctor-cam-wall-scroll") ? c.parentElement : null;
+
   const cap = clampProctorTilesVisible(stateCache?.examSession?.proctorMaxCameraTilesVisible);
-  const cols = proctorEffectiveGridColumns();
+  const cols = proctorCameraGridColumns(cap);
   const rows = Math.max(1, Math.ceil(cap / cols));
-  zone.style.setProperty("--proctor-visible-rows", String(rows));
+  c.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  c.classList.toggle("proctor-video-wall--compact", cols >= 6);
+  if (zone) zone.style.setProperty("--proctor-visible-rows", String(rows));
+
+  if (!scrollParent) return;
+
+  const wideDesktop = typeof window !== "undefined" && window.innerWidth > 900;
+  const noScrollFit = wideDesktop && rows <= 2;
+  if (noScrollFit) {
+    scrollParent.style.maxHeight = "none";
+    scrollParent.style.overflowY = "hidden";
+    return;
+  }
+
   const tile = c.querySelector(".video-tile");
   if (!tile) {
-    scrollEl.style.maxHeight = "";
+    scrollParent.style.maxHeight = "";
+    scrollParent.style.overflowY = "auto";
     return;
   }
   const cs = getComputedStyle(c);
   const gapSrc = cs.rowGap && cs.rowGap !== "normal" ? cs.rowGap : cs.gap || "10px";
   const gh = parseFloat(String(gapSrc).trim().split(/\s+/)[0]) || 10;
   const h = Math.max(1, Math.round(tile.getBoundingClientRect().height));
-  scrollEl.style.maxHeight = `${rows * h + Math.max(0, rows - 1) * gh + 10}px`;
+  scrollParent.style.maxHeight = `${rows * h + Math.max(0, rows - 1) * gh + 10}px`;
+  scrollParent.style.overflowY = "auto";
 }
 
 const INTEGRITY_HOT_MS = 45000;
@@ -659,13 +684,6 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
   viewerRtcTeardown?.();
   container.innerHTML = "";
   lastCameraViewCtx = { roomId, viewerUserId, role, container };
-
-  const zone = container.closest(".proctor-cam-zone");
-  if (zone) {
-    const cap = clampProctorTilesVisible(stateCache?.examSession?.proctorMaxCameraTilesVisible);
-    const rows = Math.max(1, Math.ceil(cap / proctorEffectiveGridColumns()));
-    zone.style.setProperty("--proctor-visible-rows", String(rows));
-  }
 
   const peers = new Map();
 
