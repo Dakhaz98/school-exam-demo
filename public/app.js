@@ -600,6 +600,21 @@ function clampProctorTilesVisible(value) {
   return Math.min(12, Math.max(9, n));
 }
 
+function updateProctorCamCapacityHint(rosterCount) {
+  const el = $("#proctor-cam-capacity-hint");
+  if (!el) return;
+  const n = Math.max(0, Math.floor(Number(rosterCount)) || 0);
+  if (n >= 12) {
+    el.innerHTML =
+      "This room’s roster has <strong>12</strong> students → <strong>12</strong> camera tiles. On a wide window the grid is <strong>6×2</strong> with no inner scroll when the pane is tall enough; small windows may scroll.";
+  } else if (n > 0) {
+    el.innerHTML = `This room’s roster has <strong>${n}</strong> student(s) → <strong>${n}</strong> camera tiles (not twelve). Open <strong>Rosters &amp; Excel</strong>, set <strong>Number of students</strong> to <strong>12</strong>, click <strong>Load DMES trial scenario</strong> again, then use <strong>Refresh camera connections</strong> on the proctor desk.`;
+  } else {
+    el.textContent =
+      "No students on this room’s roster yet. One tile appears per roster student when the list loads. DMES supports up to 12.";
+  }
+}
+
 function detachProctorCamViewportWatch() {
   if (proctorCamViewportResizeHandler) {
     window.removeEventListener("resize", proctorCamViewportResizeHandler);
@@ -803,6 +818,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
       const row = (roster.students || []).find((x) => x.studentId === p.studentId);
       if (row) {
         await connectToStudent(row.studentId, row.fullName);
+        updateProctorCamCapacityHint(container.querySelectorAll(".video-tile").length);
         requestAnimationFrame(() => syncProctorCamScrollViewport());
       }
     } catch {
@@ -816,6 +832,7 @@ async function startProctorViewCameras(roomId, viewerUserId, role, container) {
     for (const row of roster.students || []) {
       await connectToStudent(row.studentId, row.fullName);
     }
+    updateProctorCamCapacityHint((roster.students || []).length);
     if (!(roster.students || []).length) {
       container.innerHTML = '<p class="hint">No students in this room yet. When a student begins the exam, feeds appear automatically or use Refresh camera connections.</p>';
     }
