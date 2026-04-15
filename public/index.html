@@ -59,15 +59,12 @@
         <div class="panel" style="margin-top: 0.75rem; background: rgba(94, 225, 208, 0.08); border-color: rgba(94, 225, 208, 0.25)">
           <h3 style="margin-top: 0">Quick trial</h3>
           <p class="hint" style="margin-bottom: 0.5rem">
-            On the <strong>Rosters &amp; Excel</strong> tab, click <strong>Load DMES trial scenario</strong> to preload the platform (16 students in one room), then use <strong>Fill: Student-1 … Student-16</strong> and <strong>Fill: teacher-1 / 2</strong> below (one device per student id for live video).
+            On <strong>Rosters &amp; Excel</strong>, choose <strong>1–12</strong> students and click <strong>Load DMES trial scenario</strong>. Roster uses <strong>std1 … stdN</strong>; every student uses exam access key <strong>12345</strong> on this screen. Use <strong>Fill: teacher-1 / 2</strong> or <strong>Administration</strong> below — type student ids manually (no student quick-fill row).
           </p>
           <div class="row" id="quick-trial-fills-row" style="flex-wrap: wrap; gap: 0.35rem">
             <button type="button" class="secondary" id="btn-fill-admin">Fill: Administration (admin)</button>
             <button type="button" class="secondary" id="btn-fill-teacher-1">Fill: teacher-1</button>
             <button type="button" class="secondary" id="btn-fill-teacher-2">Fill: teacher-2</button>
-            <button type="button" class="secondary" id="btn-fill-student-1">Fill: Student-1</button>
-            <button type="button" class="secondary" id="btn-fill-student-2">Fill: Student-2</button>
-            <button type="button" class="secondary" id="btn-fill-student-3">Fill: Student-3</button>
           </div>
         </div>
         <details class="panel" style="margin-top: 0.75rem">
@@ -78,10 +75,10 @@
               <strong>Tab 1 – Administration:</strong> Load a demo scenario on <strong>Rosters &amp; Excel</strong>, then use <strong>Live control</strong> → <strong>Open command center</strong> on a room: a <strong>new tab</strong> opens with the full room dashboard (same tools as the teacher view). If the pop-up is blocked, the command center opens in the current tab instead.
             </li>
             <li>
-              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the lobby gate allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). You will see up to sixteen camera tiles (one feed per connected student id).
+              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the lobby gate allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). Camera wall shows up to <strong>12</strong> tiles in view (policy); extra feeds scroll.
             </li>
             <li>
-              <strong>Tab 3 – Student:</strong> Quick fill <strong>Student-1</strong> (or any <strong>Student-2 … Student-16</strong> on other devices) → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. You will see a <strong>waiting area</strong> first; after admit and paper release, the exam page shows questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
+              <strong>Tab 3 – Student:</strong> Role <strong>Student</strong>, id <strong>std1</strong> … <strong>std12</strong> (however many you loaded), exam access key <strong>12345</strong> → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. Waiting area first; after admit and paper release, questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
             </li>
           </ol>
         </details>
@@ -197,10 +194,14 @@
             <button type="button" class="ghost" id="btn-seed-demo">Load demo roster</button>
           </div>
           <div class="panel">
-            <h2>Full trial scenario (Student-1…16 + teacher-1…2)</h2>
+            <h2>DMES trial (std1…stdN + teacher-1…2)</h2>
             <p class="hint">
-              Students <strong>Student-1</strong> through <strong>Student-16</strong> (Grade 10, same room) and teachers <strong>teacher-1</strong>, <strong>teacher-2</strong> (both assigned proctors). One room, short schedule with lobby open for testing, 10-question MCQ paper, published. Either teacher may <strong>Admit</strong> students; one of them must click <strong>Release question paper</strong> or questions will not load. Use one browser/device per student id for each live camera.
+              Creates <strong>std1</strong> through <strong>stdN</strong> (<strong>Grade 10</strong>, one room) with <strong>N</strong> you choose below (1–12), plus teachers <strong>teacher-1</strong> and <strong>teacher-2</strong>. Sets the trial <strong>exam access key to 12345</strong> for every student login. Short schedule, 10-question MCQ, published. Either teacher may <strong>Admit</strong>; one must <strong>Release question paper</strong>.
             </p>
+            <label class="hint" style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.5rem 0">
+              Number of students (1–12)
+              <input type="number" id="dmes-student-count" min="1" max="12" value="12" style="width: 4.5rem" />
+            </label>
             <button type="button" id="btn-seed-dmes-trial">Load DMES trial scenario</button>
             <p class="hint" id="seed-dmes-result" style="margin-top: 0.65rem"></p>
           </div>
@@ -519,7 +520,7 @@
                     <div class="proctor-pm-fields">
                       <label class="proctor-pm-label">
                         Student ID
-                        <input id="pm-to" type="text" placeholder="Student-1" autocomplete="off" />
+                        <input id="pm-to" type="text" placeholder="std1" autocomplete="off" />
                       </label>
                       <label class="proctor-pm-label">
                         Message
@@ -545,7 +546,7 @@
                     <div class="proctor-cam-toolbar-left">
                       <button type="button" class="secondary" id="btn-proctor-refresh-cam">Refresh camera connections</button>
                       <span class="proctor-cam-capacity-hint"
-                        >Up to 16 cameras connect; the grid shows a viewport of 9–12 tiles (set by administration) — scroll for the rest.</span
+                        >One tile per connected student (DMES: up to 12). Viewport shows 9–12 tiles (set by administration) — scroll for any extra feeds.</span
                       >
                     </div>
                     <div id="proctor-help-wrap" class="hidden proctor-cam-utilities">
@@ -735,7 +736,7 @@
             <div class="row" style="flex-wrap: wrap; gap: 0.5rem">
               <label>
                 Student ID
-                <input id="admin-room-pm-to" type="text" placeholder="Student-1" />
+                <input id="admin-room-pm-to" type="text" placeholder="std1" />
               </label>
               <label style="flex: 1; min-width: 12rem">
                 Message

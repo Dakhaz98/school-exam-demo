@@ -1472,25 +1472,34 @@ function bindAdminUploads() {
   $("#btn-seed-demo").onclick = async () => {
     await api("/api/admin/seed-demo-roster", { method: "POST" });
     await refreshState();
+    updateExamKeyRowVisibility();
   };
   const seedDmesBtn = $("#btn-seed-dmes-trial");
   if (seedDmesBtn) {
     seedDmesBtn.onclick = async () => {
       const out = $("#seed-dmes-result");
       try {
-        const r = await api("/api/admin/seed-demo-roster?variant=dmes", {
+        const countInp = $("#dmes-student-count");
+        const rawN = countInp ? Number(countInp.value) : 12;
+        const dmesStudentCount = Math.min(12, Math.max(1, Math.floor(Number.isFinite(rawN) ? rawN : 12)));
+        const r = await api(`/api/admin/seed-demo-roster?variant=dmes&count=${encodeURIComponent(String(dmesStudentCount))}`, {
           method: "POST",
-          body: JSON.stringify({ variant: "dmes" }),
+          body: JSON.stringify({ variant: "dmes", dmesStudentCount }),
         });
-        const fallbackDmesStudents = Array.from({ length: 16 }, (_, i) => ({
-          userId: `Student-${i + 1}`,
-          displayName: `Student-${i + 1}`,
-          role: "student",
-        }));
+        const cnt = r.state?.studentsCount;
+        const fallbackDmesStudents =
+          typeof cnt === "number" && cnt >= 1 && cnt <= 12
+            ? Array.from({ length: cnt }, (_, i) => ({
+                userId: `std${i + 1}`,
+                displayName: `std${i + 1}`,
+                role: "student",
+              }))
+            : null;
         const sc =
           r.scenario && Array.isArray(r.scenario.students) && r.scenario.students.length
             ? r.scenario
-            : r.state?.studentsCount === 16 &&
+            : fallbackDmesStudents &&
+                cnt === fallbackDmesStudents.length &&
                 r.state?.teachersCount === 2 &&
                 String(r.state?.examSession?.targetGrade || "") === "Grade 10"
               ? {
@@ -1499,11 +1508,12 @@ function bindAdminUploads() {
                     { userId: "teacher-1", displayName: "teacher-1", role: "proctor" },
                     { userId: "teacher-2", displayName: "teacher-2", role: "proctor" },
                   ],
-                  student: { userId: "Student-1", displayName: "Student-1", role: "student" },
+                  student: { userId: "std1", displayName: "std1", role: "student" },
                   teacher: { userId: "teacher-1", displayName: "teacher-1", role: "proctor" },
                   admin: { userId: "admin", displayName: "Administration", role: "admin" },
                   grade: "Grade 10",
-                  note: "Lobby window is open for testing. Each browser tab has its own login (session is per tab).",
+                  trialExamAccessKey: "12345",
+                  note: "Students: std1 … std" + cnt + ". Exam access key 12345 for each student login.",
                 }
               : null;
         if (out) {
@@ -1517,17 +1527,23 @@ function bindAdminUploads() {
             const teachLines = (sc.teachers || [sc.teacher].filter(Boolean))
               .map((x) => `<code>${escapeHtml(x.userId)}</code> — ${escapeHtml(x.displayName || "")}`)
               .join("<br/>");
+            const keyLine =
+              sc.trialExamAccessKey != null
+                ? `<br/>Exam access key (all students): <code>${escapeHtml(String(sc.trialExamAccessKey))}</code> — enter on the welcome screen.`
+                : "";
             out.innerHTML = [
-              "<strong>Scenario loaded.</strong> Use one device per student id. Quick fill buttons are on the welcome screen.",
+              "<strong>Scenario loaded.</strong> Teachers: use Quick fill on the welcome screen. Students: type <code>std#</code> manually and the exam access key above.",
               `<br/>Admin: <code>${escapeHtml(sc.admin?.userId || "admin")}</code>`,
               `<br/>Teachers (proctors):<br/>${teachLines}`,
               `<br/>Students:<br/>${studLines}`,
               `<br/>Grade: <code>${escapeHtml(sc.grade || "")}</code>.`,
+              keyLine,
               `<br/><span class="hint">${escapeHtml(sc.note || "")}</span>`,
             ].join("");
           }
         }
         await refreshState();
+        updateExamKeyRowVisibility();
       } catch (e) {
         if (out) out.textContent = e.message || String(e);
         alert(e.message || String(e));
@@ -1554,6 +1570,7 @@ function bindAdminUploads() {
           }
         }
         await refreshState();
+        updateExamKeyRowVisibility();
       } catch (e) {
         const el = $("#seed-trio-result");
         if (el) el.textContent = e.message || String(e);
@@ -2764,13 +2781,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     syncUserIdLabel();
     updateExamKeyRowVisibility();
   });
-  const fillStudent = (id) => {
-    $("#role").value = "student";
-    $("#userId").value = id;
-    $("#displayName").value = id;
-    syncUserIdLabel();
-    updateExamKeyRowVisibility();
-  };
   const fillTeacher = (id) => {
     $("#role").value = "proctor";
     $("#userId").value = id;
@@ -2778,21 +2788,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     syncUserIdLabel();
     updateExamKeyRowVisibility();
   };
-  $("#btn-fill-student-1")?.addEventListener("click", () => fillStudent("Student-1"));
-  $("#btn-fill-student-2")?.addEventListener("click", () => fillStudent("Student-2"));
-  $("#btn-fill-student-3")?.addEventListener("click", () => fillStudent("Student-3"));
-  const quickRow = $("#quick-trial-fills-row");
-  if (quickRow) {
-    for (let i = 4; i <= 16; i++) {
-      const id = `Student-${i}`;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "secondary";
-      btn.textContent = `Fill: ${id}`;
-      btn.addEventListener("click", () => fillStudent(id));
-      quickRow.appendChild(btn);
-    }
-  }
   $("#btn-fill-teacher-1")?.addEventListener("click", () => fillTeacher("teacher-1"));
   $("#btn-fill-teacher-2")?.addEventListener("click", () => fillTeacher("teacher-2"));
 

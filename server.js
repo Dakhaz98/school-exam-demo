@@ -613,15 +613,20 @@ function demoTenMcqQuestions() {
   ];
 }
 
-function runSeedDmesTrialScenario() {
-  /** Sixteen students in one room so proctor camera wall can be layout-tested at full capacity */
+const DMES_TRIAL_EXAM_ACCESS_KEY = "12345";
+
+/**
+ * @param {number} [studentCount] How many roster students (1–12). IDs: std1 … stdN.
+ */
+function runSeedDmesTrialScenario(studentCount) {
+  const n = Math.min(12, Math.max(1, Math.floor(Number(studentCount)) || 12));
   const students = [];
-  for (let i = 1; i <= 16; i++) {
-    const sid = `Student-${i}`;
+  for (let i = 1; i <= n; i++) {
+    const sid = `std${i}`;
     students.push({
       studentId: sid,
       fullName: sid,
-      email: `student-${i}@demo.school`,
+      email: `std${i}@demo.school`,
       stage: "Secondary",
       grade: "Grade 10",
     });
@@ -672,24 +677,27 @@ function runSeedDmesTrialScenario() {
   }
   ex.published = true;
   ex.proctorMaxCameraTilesVisible = 12;
+  state.examAccessKey = DMES_TRIAL_EXAM_ACCESS_KEY;
   resetExamAdmissionState();
   const primary = students[0];
   const primaryT = teachers[0];
   return {
+    dmesStudentCount: n,
+    trialExamAccessKey: DMES_TRIAL_EXAM_ACCESS_KEY,
     students: students.map((s) => ({ role: "student", userId: s.studentId, displayName: s.fullName })),
     teachers: teachers.map((t) => ({ role: "proctor", userId: t.staffId, displayName: t.fullName })),
     student: { role: "student", userId: primary.studentId, displayName: primary.fullName },
     teacher: { role: "proctor", userId: primaryT.staffId, displayName: primaryT.fullName },
     admin: { role: "admin", userId: "admin", displayName: "Administration" },
     grade: primary.grade,
-    note:
-      "Sixteen students (Student-1 … Student-16) in one room; teacher-1 and teacher-2 are both assigned as proctors (either may Admit and must click Release question paper after students are ready — questions stay hidden until Release). Use one device per student id for live video; other tiles show as waiting until each id connects. Camera and microphone required before Begin exam.",
+    note: `${n} student(s) (std1 … std${n}) in one room. teacher-1 and teacher-2 are proctors (Admit + Release question paper required before questions appear). Each student logs in as std# on the welcome screen and must enter exam access key ${DMES_TRIAL_EXAM_ACCESS_KEY} (same for all). One device per student id for live camera.`,
   };
 }
 
 const TRIO_DEMO_MODEL_ID = "upload-trio-demo";
 
 function runSeedTrioScenario() {
+  state.examAccessKey = "";
   const students = [
     {
       studentId: "DEMO-S1",
@@ -1431,7 +1439,7 @@ app.delete("/api/admin/question-models/:id", (req, res) => {
   res.json({ ok: true, state: publicSnapshot() });
 });
 
-/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. JSON body {"variant":"dmes"} or {"variant":"trio"}. */
+/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. DMES: {"variant":"dmes","dmesStudentCount":1-12} or ?count= . Trio: {"variant":"trio"}. */
 app.post("/api/admin/seed-demo-roster", (req, res) => {
   const b = req.body || {};
   const qv = String(req.query?.variant || req.query?.mode || "").toLowerCase();
@@ -1440,8 +1448,9 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
   const wantTrio =
     b.variant === "trio" || b.mode === "trio" || qv === "trio" || String(req.headers["x-seed-variant"] || "").toLowerCase() === "trio";
   if (wantDmes) {
-    const scenario = runSeedDmesTrialScenario();
-    appendAudit("seed_dmes_trial", "DMES trial Student-1..16 + teacher-1..2 scenario", { actorRole: "admin", actorId: "admin" });
+    const rawN = b.dmesStudentCount ?? b.studentCount ?? req.query?.count ?? req.query?.students;
+    const scenario = runSeedDmesTrialScenario(rawN);
+    appendAudit("seed_dmes_trial", `DMES trial std1..std${scenario.dmesStudentCount} + teacher-1..2`, { actorRole: "admin", actorId: "admin" });
     broadcastState();
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }
@@ -1451,6 +1460,7 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
     broadcastState();
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }
+  state.examAccessKey = "";
   const students = [];
   for (let i = 1; i <= 70; i++) {
     const id = `S${String(i).padStart(4, "0")}`;
