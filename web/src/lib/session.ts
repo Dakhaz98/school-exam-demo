@@ -8,6 +8,8 @@ export type AppProfile = {
   role: string;
   full_name: string;
   email: string;
+  /** Roster id in exam-realtime (Excel "Student ID") when role is student */
+  student_id: string | null;
 };
 
 export type ServerSession =
@@ -31,7 +33,7 @@ export async function getServerSession(): Promise<ServerSession> {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('id, school_id, role, full_name, email')
+    .select('id, school_id, role, full_name, email, student_id')
     .eq('id', user.id)
     .maybeSingle();
 

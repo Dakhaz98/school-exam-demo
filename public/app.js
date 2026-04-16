@@ -479,6 +479,92 @@ function clearSession() {
   session = null;
 }
 
+/** Filled from URL query `prefill_from_console` once per load; consumed in `renderLogin`. */
+let pendingConsolePrefill = null;
+
+function sanitizeConsolePrefillPart(v, max = 128) {
+  const s = String(v ?? "").trim().slice(0, max);
+  if (/[\r\n<>"']/.test(s)) return "";
+  return s;
+}
+
+function tryStripConsolePrefillQuery() {
+  try {
+    const u = new URL(window.location.href);
+    if (!u.search) return;
+    u.search = "";
+    history.replaceState({}, "", u.pathname + u.search + u.hash);
+  } catch {
+    /* ignore */
+  }
+}
+
+function captureConsolePrefillFromUrl() {
+  let params;
+  try {
+    params = new URLSearchParams(window.location.search);
+  } catch {
+    return;
+  }
+  if (params.get("prefill_from_console") !== "1") return;
+  const roleRaw = sanitizeConsolePrefillPart(params.get("prefill_role"), 32).toLowerCase();
+  const role = roleRaw === "student" || roleRaw === "proctor" || roleRaw === "admin" ? roleRaw : "";
+  if (!role) {
+    tryStripConsolePrefillQuery();
+    return;
+  }
+  let userId = "";
+  if (role === "student") {
+    userId =
+      sanitizeConsolePrefillPart(params.get("prefill_student_id")) ||
+      sanitizeConsolePrefillPart(params.get("prefill_user_id"));
+  } else if (role === "proctor") {
+    userId =
+      sanitizeConsolePrefillPart(params.get("prefill_staff_id")) ||
+      sanitizeConsolePrefillPart(params.get("prefill_user_id"));
+  } else {
+    userId = sanitizeConsolePrefillPart(params.get("prefill_user_id")) || "admin";
+  }
+  if (!userId && role !== "admin") {
+    tryStripConsolePrefillQuery();
+    return;
+  }
+  if (role === "admin" && !userId) userId = "admin";
+  const displayName =
+    sanitizeConsolePrefillPart(params.get("prefill_display")) ||
+    sanitizeConsolePrefillPart(params.get("prefill_display_name")) ||
+    userId;
+  const examRef = sanitizeConsolePrefillPart(params.get("exam_ref"), 64);
+
+  if (role === "student") clearSession();
+
+  pendingConsolePrefill = { role, userId, displayName, examRef };
+  tryStripConsolePrefillQuery();
+}
+
+function applyPendingConsolePrefillToLoginForm() {
+  if (!pendingConsolePrefill) return;
+  const p = pendingConsolePrefill;
+  pendingConsolePrefill = null;
+  const roleEl = $("#role");
+  const uidEl = $("#userId");
+  const dnEl = $("#displayName");
+  if (!roleEl || !uidEl) return;
+  roleEl.value = p.role;
+  uidEl.value = p.userId;
+  if (dnEl) dnEl.value = p.displayName || p.userId;
+  syncUserIdLabel();
+  updateExamKeyRowVisibility();
+  if (p.examRef) {
+    const hb = $("#hero-banner");
+    const ht = $("#hero-text");
+    if (hb && ht) {
+      hb.classList.remove("hidden");
+      ht.innerHTML = `<span class="pill ok">School console</span> Exam link <strong>${escapeHtml(p.examRef)}</strong> — confirm your Student ID, exam access key if your school uses one, then Continue.`;
+    }
+  }
+}
+
 function friendlyHttpError(status, bodyText) {
   const t = String(bodyText || "");
   if (t.includes("Cannot GET") || t.includes("Cannot POST") || t.includes("<!DOCTYPE") || t.includes("<html")) {
@@ -1124,6 +1210,7 @@ function renderLogin() {
   }
   syncUserIdLabel();
   updateExamKeyRowVisibility();
+  applyPendingConsolePrefillToLoginForm();
   setProctorSurfaceMode("materials");
 }
 
@@ -3279,6 +3366,7 @@ function bindStudent() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  captureConsolePrefillFromUrl();
   bindConnectionPanel();
   probeBackendOnce();
   setInterval(() => probeBackendOnce(), 60000);
