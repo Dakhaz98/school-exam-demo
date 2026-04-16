@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-24";
+const SERVER_BUILD_ID = "exam-demo-build-25";
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
@@ -86,7 +86,7 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 });
 
-/** @typedef {{ id: string, text: string, choices: string[], correctIndex?: number }} Question */
+/** @typedef {{ id: string, text: string, choices?: string[], correctIndex?: number, type?: string, maxPoints?: number, authoredByStaffId?: string }} Question */
 /** @typedef {{ id: string, label: string, questions: Question[] }} QuestionModel */
 
 /** @type {QuestionModel[]} */
@@ -413,6 +413,11 @@ const state = {
   sebRequireForStudents: false,
   /** Browser Exam Key strings from SEB Config Tool (Exam tab); one per line / array entry; multiple SEB versions supported. */
   sebAllowedBrowserExamKeys: [],
+  /**
+   * Essay submissions keyed by blind id (teacher sees no student name).
+   * @type {{ byBlindId: Record<string, { studentId: string, questionId: string, modelId: string, text: string, submittedAt: string, maxPoints: number, authorStaffId: string | null, score?: number, gradedAt?: string }> }}
+   */
+  essayWork: { byBlindId: {} },
 };
 
 const logger = require("./lib/logger");
@@ -471,6 +476,30 @@ function getModel(id) {
   return state.uploadedQuestionModels.find((m) => m.id === id) || teacherModels.find((m) => m.id === id) || null;
 }
 
+const MAX_TEACHER_QUESTION_MODELS = 3;
+
+function countTeacherUploadedModels(staffId) {
+  return state.uploadedQuestionModels.filter((m) => m.uploadedByStaffId === staffId).length;
+}
+
+function isEssayQuestion(q) {
+  if (!q) return false;
+  if (q.type === "essay") return true;
+  return !Array.isArray(q.choices) || q.choices.length < 2;
+}
+
+function newEssayBlindId() {
+  return `anon-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function findEssaySubmissionForStudent(studentId, questionId) {
+  const map = state.essayWork?.byBlindId || {};
+  for (const row of Object.values(map)) {
+    if (row && row.studentId === studentId && row.questionId === questionId) return row;
+  }
+  return null;
+}
+
 /** Question ids to score for this student (subset after pool draw, or full model). */
 function servedQuestionIdsForScoring(studentId) {
   const modelId = state.examSession.selectedModelId;
@@ -483,9 +512,12 @@ function servedQuestionIdsForScoring(studentId) {
 
 /**
  * Auto-score stored MCQ answers. Choices are shuffled per student on the paper; answers are stored as display indices.
+ * Essay items are excluded from MCQ counts; optional admin-only essay totals.
  * @param {string} studentId
+ * @param {{ includeAdminEssay?: boolean }} [opts]
  */
-function computeMcqScoreForStudent(studentId) {
+function computeMcqScoreForStudent(studentId, opts = {}) {
+  const emptyEssay = opts.includeAdminEssay ? { essayGradedPoints: 0, essayGradedMax: 0, essayPending: 0 } : {};
   const modelId = state.examSession.selectedModelId;
   const model = modelId ? getModel(modelId) : null;
   if (!model || !model.questions.length) {
@@ -497,6 +529,7 @@ function computeMcqScoreForStudent(studentId) {
       answeredWithKey: 0,
       percent: null,
       perQuestion: [],
+      ...emptyEssay,
     };
   }
   const ans = state.answers[studentId] || {};
@@ -509,6 +542,7 @@ function computeMcqScoreForStudent(studentId) {
   for (const qid of idOrder) {
     const q = model.questions.find((x) => x.id === qid);
     if (!q) continue;
+    if (isEssayQuestion(q)) continue;
     if (typeof q.correctIndex !== "number") {
       perQuestion.push({ questionId: q.id, status: "no_key" });
       continue;
@@ -530,7 +564,7 @@ function computeMcqScoreForStudent(studentId) {
     perQuestion.push({ questionId: q.id, status: ok ? "correct" : "wrong" });
   }
   const percent = questionsWithKey > 0 ? Math.round((correctCount / questionsWithKey) * 1000) / 10 : null;
-  return {
+  const base = {
     modelId: model.id,
     modelLabel: model.label,
     questionsWithKey,
@@ -539,6 +573,23 @@ function computeMcqScoreForStudent(studentId) {
     percent,
     perQuestion,
   };
+  if (!opts.includeAdminEssay) return base;
+  let essayGradedPoints = 0;
+  let essayGradedMax = 0;
+  let essayPending = 0;
+  for (const qid of idOrder) {
+    const q = model.questions.find((x) => x.id === qid);
+    if (!q || !isEssayQuestion(q)) continue;
+    const maxP = Math.min(100, Math.max(1, Math.floor(Number(q.maxPoints) || 10)));
+    const sub = findEssaySubmissionForStudent(studentId, q.id);
+    if (sub && typeof sub.score === "number") {
+      essayGradedPoints += sub.score;
+      essayGradedMax += maxP;
+    } else if (ans[q.id] === -1) {
+      essayPending++;
+    }
+  }
+  return { ...base, essayGradedPoints, essayGradedMax, essayPending };
 }
 
 /** Simple item analysis: share correct among students in target grade who saw the question. */
@@ -547,6 +598,9 @@ function computeItemAnalysis() {
   if (!model) return [];
   const gradeStudents = state.students.filter((s) => normGrade(s.grade) === normGrade(state.examSession.targetGrade));
   return model.questions.map((q) => {
+    if (isEssayQuestion(q)) {
+      return { questionId: q.id, text: q.text, keyed: false, attempts: 0, correct: 0, pCorrect: null, kind: "essay" };
+    }
     if (typeof q.correctIndex !== "number") {
       return { questionId: q.id, text: q.text, keyed: false, attempts: 0, correct: 0, pCorrect: null };
     }
@@ -556,7 +610,7 @@ function computeItemAnalysis() {
       const ids = state.studentPaperSets[s.studentId];
       if (ids && ids.length > 0 && !ids.includes(q.id)) continue;
       const displayIdx = state.answers[s.studentId]?.[q.id];
-      if (typeof displayIdx !== "number") continue;
+      if (typeof displayIdx !== "number" || displayIdx === -1) continue;
       attempts++;
       const perm = shuffle(
         q.choices.map((_, i) => i),
@@ -938,6 +992,10 @@ function buildShuffledQuestionForStudent(sid, qid) {
   if (!model) return null;
   const q = model.questions.find((x) => x.id === qid);
   if (!q) return null;
+  if (isEssayQuestion(q)) {
+    const maxPoints = Math.min(100, Math.max(1, Math.floor(Number(q.maxPoints) || 10)));
+    return { id: q.id, text: q.text, type: "essay", maxPoints };
+  }
   const perm = shuffle(q.choices.map((_, i) => i), sid + qid);
   const choices = perm.map((i) => q.choices[i]);
   return { id: q.id, text: q.text, choices };
@@ -1429,6 +1487,12 @@ function handleQuestionModelUpload(req, res) {
       error: "Staff ID not found in the teacher roster. Ask administration to upload the teachers file first, or clear staff id for an administration-only upload.",
     });
   }
+  if (staffId && teacherRow && countTeacherUploadedModels(staffId) >= MAX_TEACHER_QUESTION_MODELS) {
+    return res.status(400).json({
+      ok: false,
+      error: `Each teacher may upload at most ${MAX_TEACHER_QUESTION_MODELS} question models. Ask administration to remove an older uploaded model if you need a new file.`,
+    });
+  }
   try {
     const questions = parseQuestionModelSheet(req.file.buffer, req.file.originalname);
     if (!questions.length) {
@@ -1458,6 +1522,94 @@ function handleQuestionModelUpload(req, res) {
 app.post("/api/admin/upload/question-model", upload.single("file"), handleQuestionModelUpload);
 /** Alias kept for bookmarks; same handler as admin (optional multipart field staffId for teacher attribution). */
 app.post("/api/teacher/upload/question-model", upload.single("file"), handleQuestionModelUpload);
+
+app.get("/api/teacher/:staffId/my-question-models", (req, res) => {
+  const staffId = req.params.staffId;
+  if (!teacherById(staffId)) return res.status(404).json({ ok: false, error: "Unknown teacher." });
+  const list = state.uploadedQuestionModels
+    .filter((m) => m.uploadedByStaffId === staffId)
+    .map((m) => ({
+      id: m.id,
+      label: m.label,
+      questionCount: m.questions.length,
+    }));
+  res.json({ ok: true, models: list, slotsUsed: list.length, slotsMax: MAX_TEACHER_QUESTION_MODELS });
+});
+
+app.post("/api/teacher/:staffId/models/:modelId/essay-questions", (req, res) => {
+  const staffId = req.params.staffId;
+  const modelId = req.params.modelId;
+  if (!teacherById(staffId)) return res.status(404).json({ ok: false, error: "Unknown teacher." });
+  const model = state.uploadedQuestionModels.find((m) => m.id === modelId);
+  if (!model || model.uploadedByStaffId !== staffId) {
+    return res.status(403).json({ ok: false, error: "You can only add essays to your own uploaded question models." });
+  }
+  const text = String(req.body?.text || "").trim();
+  if (!text || text.length > 8000) {
+    return res.status(400).json({ ok: false, error: "Essay prompt is required (max 8000 characters)." });
+  }
+  let maxPoints = Math.floor(Number(req.body?.maxPoints) || 10);
+  if (!Number.isFinite(maxPoints) || maxPoints < 1) maxPoints = 10;
+  maxPoints = Math.min(100, maxPoints);
+  const id = `essay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  model.questions.push({
+    id,
+    text,
+    type: "essay",
+    maxPoints,
+    authoredByStaffId: staffId,
+    choices: [],
+  });
+  appendAudit("teacher_add_essay", `${id} → model ${modelId}`, { actorRole: "proctor", actorId: staffId });
+  broadcastState();
+  res.json({ ok: true, questionId: id, questionCount: model.questions.length, state: publicSnapshot() });
+});
+
+app.get("/api/teacher/:staffId/essay-inbox", (req, res) => {
+  const staffId = req.params.staffId;
+  if (!teacherById(staffId)) return res.status(404).json({ ok: false, error: "Unknown teacher." });
+  const items = [];
+  for (const [blindId, row] of Object.entries(state.essayWork?.byBlindId || {})) {
+    if (!row || row.authorStaffId !== staffId) continue;
+    const raw = String(row.text || "");
+    items.push({
+      blindId,
+      questionId: row.questionId,
+      fullText: raw,
+      excerpt: raw.slice(0, 280).replace(/\s+/g, " ") + (raw.length > 280 ? "…" : ""),
+      maxPoints: row.maxPoints,
+      submittedAt: row.submittedAt,
+      status: typeof row.score === "number" ? "graded" : "pending",
+      score: typeof row.score === "number" ? row.score : undefined,
+    });
+  }
+  items.sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
+  res.json({ ok: true, items });
+});
+
+app.post("/api/teacher/:staffId/essay-grade", (req, res) => {
+  const staffId = req.params.staffId;
+  if (!teacherById(staffId)) return res.status(404).json({ ok: false, error: "Unknown teacher." });
+  const blindId = String(req.body?.blindId || "").trim();
+  const score = Number(req.body?.score);
+  const row = state.essayWork.byBlindId[blindId];
+  if (!row) return res.status(404).json({ ok: false, error: "Unknown submission." });
+  if (row.authorStaffId !== staffId) return res.status(403).json({ ok: false, error: "You did not author this essay prompt." });
+  if (typeof row.score === "number") return res.status(400).json({ ok: false, error: "Already graded." });
+  if (!Number.isFinite(score)) return res.status(400).json({ ok: false, error: "Numeric score required." });
+  const cap = Math.max(0, Number(row.maxPoints) || 10);
+  const sc = Math.min(cap, Math.max(0, score));
+  row.score = sc;
+  row.gradedAt = new Date().toISOString();
+  appendAudit("essay_graded", `blind ${blindId} → ${sc}/${cap}`, { actorRole: "proctor", actorId: staffId });
+  try {
+    sqliteStore.persistCoreNow(state);
+  } catch (e) {
+    logger.logError("persist after essay grade", e);
+  }
+  broadcastState();
+  res.json({ ok: true });
+});
 
 app.delete("/api/admin/question-models/:id", (req, res) => {
   const id = req.params.id;
@@ -1984,16 +2136,42 @@ app.post("/api/student/:studentId/exam-submit", (req, res) => {
   if (init.err) return res.status(init.err).json(init.body);
   const g = gateFor("student", sid, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason });
-  const { questionId, choiceIndex } = req.body || {};
-  if (!questionId || typeof choiceIndex !== "number") return res.status(400).json({ error: "Bad payload" });
+  const { questionId, choiceIndex, essayText } = req.body || {};
+  if (!questionId) return res.status(400).json({ error: "Bad payload" });
   const order = state.studentPaperSets[sid];
   let idx = state.studentPaperCursor[sid];
   if (typeof idx !== "number" || idx < 0) idx = 0;
   if (idx >= order.length) return res.status(400).json({ error: "Exam already completed." });
   if (order[idx] !== questionId) return res.status(400).json({ error: "Submit does not match the current question step." });
+  const model = state.examSession.selectedModelId ? getModel(state.examSession.selectedModelId) : null;
+  const q = model?.questions.find((x) => x.id === questionId);
+  if (!q) return res.status(400).json({ error: "Unknown question." });
   if (!state.answers[sid]) state.answers[sid] = {};
-  state.answers[sid][questionId] = choiceIndex;
-  writeExamEvidenceLine(sid, { type: "answer_submit", questionId, choiceIndex, stepIndex: idx });
+  if (isEssayQuestion(q)) {
+    const txt = String(essayText ?? "").trim();
+    if (!txt) return res.status(400).json({ error: "Essay answer required." });
+    if (findEssaySubmissionForStudent(sid, questionId)) {
+      return res.status(400).json({ error: "This essay was already submitted." });
+    }
+    const blindId = newEssayBlindId();
+    const maxPts = Math.min(100, Math.max(1, Math.floor(Number(q.maxPoints) || 10)));
+    state.essayWork.byBlindId[blindId] = {
+      studentId: sid,
+      questionId,
+      modelId: String(state.examSession.selectedModelId || ""),
+      text: txt.slice(0, 20000),
+      submittedAt: new Date().toISOString(),
+      maxPoints: maxPts,
+      authorStaffId: q.authoredByStaffId || null,
+    };
+    state.answers[sid][questionId] = -1;
+    writeExamEvidenceLine(sid, { type: "essay_submit", questionId, blindId, stepIndex: idx });
+    appendAudit("essay_submit", `blind ${blindId} · q ${questionId}`, { actorRole: "student", actorId: sid });
+  } else {
+    if (typeof choiceIndex !== "number") return res.status(400).json({ error: "Bad payload" });
+    state.answers[sid][questionId] = choiceIndex;
+    writeExamEvidenceLine(sid, { type: "answer_submit", questionId, choiceIndex, stepIndex: idx });
+  }
   idx += 1;
   state.studentPaperCursor[sid] = idx;
   const ex = state.examSession;
@@ -2061,7 +2239,7 @@ app.get("/api/admin/auto-grade-summary", (_req, res) => {
   const rows = state.students.map((s) => ({
     studentId: s.studentId,
     fullName: s.fullName,
-    ...computeMcqScoreForStudent(s.studentId),
+    ...computeMcqScoreForStudent(s.studentId, { includeAdminEssay: true }),
   }));
   res.json({
     ok: true,
@@ -2069,6 +2247,26 @@ app.get("/api/admin/auto-grade-summary", (_req, res) => {
     selectedModelId: state.examSession.selectedModelId,
     rows,
   });
+});
+
+app.get("/api/admin/essay-results", (_req, res) => {
+  const rows = [];
+  for (const [blindId, row] of Object.entries(state.essayWork?.byBlindId || {})) {
+    if (!row) continue;
+    const st = studentById(row.studentId);
+    rows.push({
+      blindId,
+      studentId: row.studentId,
+      fullName: st?.fullName || row.studentId,
+      questionId: row.questionId,
+      maxPoints: row.maxPoints,
+      submittedAt: row.submittedAt,
+      score: row.score,
+      gradedAt: row.gradedAt || null,
+    });
+  }
+  rows.sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
+  res.json({ ok: true, rows });
 });
 
 app.get("/api/proctor/:staffId/auto-grade-room", (req, res) => {

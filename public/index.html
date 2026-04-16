@@ -441,6 +441,8 @@
                   <th>Correct</th>
                   <th>Keyed items</th>
                   <th>Percent</th>
+                  <th>Essay (graded / max)</th>
+                  <th>Essay pending</th>
                 </tr>
               </thead>
               <tbody id="live-mcq-grade-body"></tbody>
@@ -483,6 +485,40 @@
         </section>
 
         <section data-tab="proctor" class="hidden">
+          <div class="panel proctor-teacher-panel" id="proctor-teacher-panel">
+            <h2>Teacher question materials</h2>
+            <p class="hint" id="proctor-teacher-upload-hint"></p>
+            <div class="row" style="flex-wrap: wrap; gap: 0.75rem; align-items: flex-end">
+              <label>Question Excel / CSV
+                <input type="file" id="teacher-q-file" accept=".xlsx,.xls,.csv" />
+              </label>
+              <label>Optional label
+                <input type="text" id="teacher-q-label" placeholder="Paper name" style="min-width: 10rem" />
+              </label>
+              <button type="button" id="btn-teacher-upload-q">Upload model</button>
+            </div>
+            <h3 style="margin-top: 1rem">Add essay (written answer) question</h3>
+            <p class="hint">
+              Attach to <strong>your</strong> uploaded model only. Student answers are delivered here under an <strong>anonymous code</strong> (no student name). After you enter a score, totals appear in
+              <strong>Administration → Live control</strong> for MCQ + essay together.
+            </p>
+            <div class="row" style="flex-wrap: wrap; gap: 0.75rem; align-items: flex-end">
+              <label>Your uploaded model
+                <select id="teacher-essay-model-select" style="min-width: 14rem"></select>
+              </label>
+              <label style="flex: 1; min-width: 14rem">Essay prompt
+                <textarea id="teacher-essay-prompt" rows="2" style="width: 100%"></textarea>
+              </label>
+              <label>Max points
+                <input type="number" id="teacher-essay-max" min="1" max="100" value="10" style="width: 5rem" />
+              </label>
+              <button type="button" id="btn-teacher-essay-add">Add essay</button>
+            </div>
+            <h3 style="margin-top: 1.25rem">Essay inbox (blind)</h3>
+            <p class="hint">Only submissions for prompts you authored. Full text is shown; student identity is hidden.</p>
+            <button type="button" class="secondary" id="btn-teacher-essay-refresh">Refresh inbox</button>
+            <div id="teacher-essay-inbox" class="log" style="max-height: 220px; margin-top: 0.5rem"></div>
+          </div>
           <div class="proctor-desk-room">
             <div class="proctor-desk-body">
               <aside class="proctor-sidebar">

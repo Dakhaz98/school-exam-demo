@@ -1186,6 +1186,9 @@ async function refreshState() {
     paintLiveTab();
     void paintPlatformCapabilities();
   }
+  if (session?.role === "proctor") {
+    void paintProctorTeacherPanel();
+  }
 }
 
 async function refreshGateBanner() {
@@ -1514,15 +1517,17 @@ function paintLiveTab() {
         const endMs = new Date(g.examEndAt).getTime();
         mcqHint.textContent =
           Date.now() < endMs
-            ? `Scheduled end ${new Date(g.examEndAt).toLocaleString()} (local). Percent uses only rows that include a Correct key in the question file.`
-            : `Scheduled end has passed. Students can view their MCQ summary on the Student desk after the countdown reaches zero.`;
+            ? `Scheduled end ${new Date(g.examEndAt).toLocaleString()} (local). Percent uses only MCQ rows that include a Correct key. Essay columns sum teacher-graded written answers (administration only on this screen).`
+            : `Scheduled end has passed. Students can view their MCQ summary on the Student desk after the countdown reaches zero. Essay totals remain visible here for administration.`;
         mcqBody.innerHTML = "";
         for (const row of g.rows || []) {
           const tr = document.createElement("tr");
           const pct = row.percent == null ? "—" : `${row.percent}%`;
           const keyed = row.questionsWithKey ?? 0;
           const corr = row.correctCount ?? 0;
-          tr.innerHTML = `<td>${escapeHtml(row.fullName)} <span class="hint">(${escapeHtml(row.studentId)})</span></td><td>${corr}</td><td>${keyed}</td><td>${pct}</td>`;
+          const em = row.essayGradedMax > 0 ? `${row.essayGradedPoints ?? 0} / ${row.essayGradedMax}` : "—";
+          const pend = row.essayPending != null && row.essayPending > 0 ? String(row.essayPending) : "0";
+          tr.innerHTML = `<td>${escapeHtml(row.fullName)} <span class="hint">(${escapeHtml(row.studentId)})</span></td><td>${corr}</td><td>${keyed}</td><td>${pct}</td><td>${escapeHtml(em)}</td><td>${escapeHtml(pend)}</td>`;
           mcqBody.appendChild(tr);
         }
       } catch (e) {
@@ -1555,7 +1560,9 @@ function paintLiveTab() {
         iaBody.innerHTML = "";
         for (const it of r.items || []) {
           const tr = document.createElement("tr");
-          if (!it.keyed) {
+          if (it.kind === "essay") {
+            tr.innerHTML = `<td><code>${escapeHtml(it.questionId)}</code> <span class="hint">(essay — manual grading)</span></td><td>—</td><td>—</td>`;
+          } else if (!it.keyed) {
             tr.innerHTML = `<td><code>${escapeHtml(it.questionId)}</code> <span class="hint">(no key)</span></td><td>—</td><td>—</td>`;
           } else {
             const pct = it.pCorrect == null ? "—" : `${it.pCorrect}%`;
@@ -2199,8 +2206,16 @@ function openObserve(roomId) {
   }
   const u = new URL(window.location.href);
   u.searchParams.set("admin_room", roomId);
-  const win = window.open(u.toString(), "_blank", "noopener,noreferrer");
-  if (!win) openAdminRoomCommandCenter(roomId);
+  const win = window.open(u.toString(), "_blank");
+  if (win) {
+    try {
+      win.opener = null;
+    } catch {
+      /* ignore */
+    }
+  } else {
+    openAdminRoomCommandCenter(roomId);
+  }
 }
 
 async function maybeBootstrapAdminRoomTab() {
@@ -2267,8 +2282,14 @@ function openProctorDeskInNewWindow() {
   }
   const u = new URL(window.location.href);
   u.searchParams.set("proctor_desk", "1");
-  const win = window.open(u.toString(), "_blank", "noopener,noreferrer");
-  return !!win;
+  const win = window.open(u.toString(), "_blank");
+  if (!win) return false;
+  try {
+    win.opener = null;
+  } catch {
+    /* ignore */
+  }
+  return true;
 }
 
 async function maybeBootstrapProctorDeskTab() {
@@ -2508,8 +2529,164 @@ async function joinProctorDeskFromSession() {
   void refreshProctorRoomProgress();
 }
 
+async function renderTeacherEssayInbox() {
+  const s = loadSession();
+  const box = $("#teacher-essay-inbox");
+  if (!s || s.role !== "proctor" || !box) return;
+  try {
+    const d = await api(`/api/teacher/${encodeURIComponent(s.userId)}/essay-inbox`);
+    box.innerHTML = "";
+    const items = d.items || [];
+    if (!items.length) {
+      box.textContent = "No essay submissions yet.";
+      return;
+    }
+    for (const it of items) {
+      const wrap = document.createElement("div");
+      wrap.style.marginBottom = "0.75rem";
+      const head = document.createElement("div");
+      head.innerHTML = `<strong>${escapeHtml(it.blindId)}</strong> · <code>${escapeHtml(it.questionId)}</code> · max <strong>${escapeHtml(
+        String(it.maxPoints)
+      )}</strong> · ${escapeHtml(it.submittedAt)} · <em>${escapeHtml(it.status)}</em>`;
+      wrap.appendChild(head);
+      const body = document.createElement("div");
+      body.className = "hint";
+      body.style.whiteSpace = "pre-wrap";
+      body.style.marginTop = "0.25rem";
+      body.textContent = it.fullText || it.excerpt || "";
+      wrap.appendChild(body);
+      if (it.status === "pending") {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.style.marginTop = "0.35rem";
+        row.style.gap = "0.5rem";
+        row.style.alignItems = "center";
+        const inp = document.createElement("input");
+        inp.type = "number";
+        inp.min = "0";
+        inp.max = String(it.maxPoints || 10);
+        inp.step = "any";
+        inp.style.width = "5.5rem";
+        inp.placeholder = "Score";
+        const go = document.createElement("button");
+        go.type = "button";
+        go.textContent = "Save score";
+        go.addEventListener("click", async () => {
+          const score = Number(inp.value);
+          if (!Number.isFinite(score)) {
+            alert("Enter a numeric score.");
+            return;
+          }
+          try {
+            await api(`/api/teacher/${encodeURIComponent(s.userId)}/essay-grade`, {
+              method: "POST",
+              body: JSON.stringify({ blindId: it.blindId, score }),
+            });
+            await renderTeacherEssayInbox();
+            await refreshState();
+          } catch (err) {
+            alert(err.message || String(err));
+          }
+        });
+        row.appendChild(inp);
+        row.appendChild(go);
+        wrap.appendChild(row);
+      } else {
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.style.marginTop = "0.25rem";
+        p.textContent = `Graded score: ${it.score}`;
+        wrap.appendChild(p);
+      }
+      box.appendChild(wrap);
+    }
+  } catch (e) {
+    box.textContent = e.message || String(e);
+  }
+}
+
+async function paintProctorTeacherPanel() {
+  const s = loadSession();
+  if (!s || s.role !== "proctor") return;
+  const hint = $("#proctor-teacher-upload-hint");
+  const sel = $("#teacher-essay-model-select");
+  if (!hint || !sel) return;
+  try {
+    const m = await api(`/api/teacher/${encodeURIComponent(s.userId)}/my-question-models`);
+    hint.textContent = `You may upload up to ${m.slotsMax} Excel/CSV question models tied to your staff id (${s.userId}). Slots used: ${m.slotsUsed} / ${m.slotsMax}. Administration still chooses the live exam model in Create exam.`;
+    const prev = sel.value;
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = (m.models || []).length ? "Choose a model…" : "Upload a model first";
+    sel.appendChild(none);
+    (m.models || []).forEach((x) => {
+      const o = document.createElement("option");
+      o.value = x.id;
+      o.textContent = `${x.label} (${x.questionCount} questions)`;
+      sel.appendChild(o);
+    });
+    if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  } catch (e) {
+    hint.textContent = e.message || String(e);
+  }
+  await renderTeacherEssayInbox();
+}
+
 function bindProctor() {
   $("#btn-proctor-progress-refresh")?.addEventListener("click", () => void refreshProctorRoomProgress());
+
+  $("#btn-teacher-upload-q")?.addEventListener("click", async () => {
+    const s = loadSession();
+    if (!s || s.role !== "proctor") return;
+    const inp = $("#teacher-q-file");
+    if (!inp?.files?.[0]) {
+      alert("Choose a question Excel or CSV file first.");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("file", inp.files[0]);
+    fd.append("staffId", s.userId);
+    const lab = ($("#teacher-q-label") && $("#teacher-q-label").value.trim()) || "";
+    if (lab) fd.append("modelLabel", lab);
+    try {
+      await apiForm("/api/teacher/upload/question-model", fd);
+      inp.value = "";
+      await refreshState();
+      alert("Question model uploaded.");
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  });
+
+  $("#btn-teacher-essay-add")?.addEventListener("click", async () => {
+    const s = loadSession();
+    if (!s || s.role !== "proctor") return;
+    const modelId = $("#teacher-essay-model-select")?.value || "";
+    const text = ($("#teacher-essay-prompt") && $("#teacher-essay-prompt").value.trim()) || "";
+    const maxPoints = Number($("#teacher-essay-max")?.value) || 10;
+    if (!modelId) {
+      alert("Choose one of your uploaded models.");
+      return;
+    }
+    if (!text) {
+      alert("Enter the essay prompt.");
+      return;
+    }
+    try {
+      await api(`/api/teacher/${encodeURIComponent(s.userId)}/models/${encodeURIComponent(modelId)}/essay-questions`, {
+        method: "POST",
+        body: JSON.stringify({ text, maxPoints }),
+      });
+      $("#teacher-essay-prompt").value = "";
+      await refreshState();
+      alert("Essay question added to that model.");
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  });
+
+  $("#btn-teacher-essay-refresh")?.addEventListener("click", () => void renderTeacherEssayInbox());
 
   $("#btn-proctor-refresh-cam")?.addEventListener("click", () => {
     const c = lastCameraViewCtx;
@@ -2961,13 +3138,20 @@ function bindStudent() {
         return;
       }
       const isLast = step.total > 0 && step.index === step.total - 1;
+      const q = step.question;
+      const isEssay = q && (q.type === "essay" || !Array.isArray(q.choices) || q.choices.length < 2);
       const prog = document.createElement("p");
       prog.className = "student-exam-wire-instruction";
-      prog.innerHTML = isLast
-        ? `Final question (${step.index + 1} of ${step.total}). Choose one answer, then press <strong>Finish exam</strong> to end your attempt.`
-        : `Question ${step.index + 1} of ${step.total}. Choose one answer, then press <strong>Submit answer</strong> for the next question.`;
+      if (isEssay) {
+        prog.innerHTML = isLast
+          ? `Final question (${step.index + 1} of ${step.total}) — <strong>written answer</strong>. Type your response, then press <strong>Finish exam</strong>.`
+          : `Question ${step.index + 1} of ${step.total} — <strong>written answer</strong>. Press <strong>Submit answer</strong> when ready for the next question.`;
+      } else {
+        prog.innerHTML = isLast
+          ? `Final question (${step.index + 1} of ${step.total}). Choose one answer, then press <strong>Finish exam</strong> to end your attempt.`
+          : `Question ${step.index + 1} of ${step.total}. Choose one answer, then press <strong>Submit answer</strong> for the next question.`;
+      }
       area.appendChild(prog);
-      const q = step.question;
       const box = document.createElement("div");
       box.className = "question panel student-exam-q-card";
       const p = document.createElement("p");
@@ -2975,42 +3159,65 @@ function bindStudent() {
       p.textContent = q.text;
       box.appendChild(p);
       let selected = null;
+      /** @type {HTMLTextAreaElement | null} */
+      let essayTa = null;
       const submitBtn = document.createElement("button");
       submitBtn.type = "button";
       submitBtn.textContent = isLast ? "Finish exam" : "Submit answer";
       submitBtn.setAttribute("aria-label", isLast ? "Finish exam and submit your final answer" : "Submit answer and go to next question");
       submitBtn.disabled = true;
-      q.choices.forEach((ch, ci) => {
-        const row = document.createElement("label");
-        row.className = "student-exam-choice-row";
-        const txt = document.createElement("span");
-        txt.className = "student-exam-choice-text";
-        /* LTR WCAG pattern: control first, then label text (G162). Number prefixes the option text. */
-        txt.textContent = `${ci + 1}. ${ch}`;
-        const inp = document.createElement("input");
-        inp.type = "radio";
-        inp.name = "seq-mcq-current";
-        inp.addEventListener("change", () => {
-          selected = ci;
-          submitBtn.disabled = false;
+      if (isEssay) {
+        essayTa = document.createElement("textarea");
+        essayTa.rows = 7;
+        essayTa.className = "student-essay-answer";
+        essayTa.style.width = "100%";
+        essayTa.setAttribute("aria-label", "Your written answer");
+        essayTa.addEventListener("input", () => {
+          submitBtn.disabled = !essayTa.value.trim();
         });
-        row.appendChild(inp);
-        row.appendChild(txt);
-        box.appendChild(row);
-      });
+        const cap = document.createElement("p");
+        cap.className = "hint";
+        cap.textContent = `Maximum length about 20 000 characters. Points: up to ${Number(q.maxPoints) || 10} (teacher grades anonymously).`;
+        box.appendChild(cap);
+        box.appendChild(essayTa);
+      } else {
+        q.choices.forEach((ch, ci) => {
+          const row = document.createElement("label");
+          row.className = "student-exam-choice-row";
+          const txt = document.createElement("span");
+          txt.className = "student-exam-choice-text";
+          /* LTR WCAG pattern: control first, then label text (G162). Number prefixes the option text. */
+          txt.textContent = `${ci + 1}. ${ch}`;
+          const inp = document.createElement("input");
+          inp.type = "radio";
+          inp.name = "seq-mcq-current";
+          inp.addEventListener("change", () => {
+            selected = ci;
+            submitBtn.disabled = false;
+          });
+          row.appendChild(inp);
+          row.appendChild(txt);
+          box.appendChild(row);
+        });
+      }
       const submitRow = document.createElement("div");
       submitRow.className = "student-exam-q-actions";
       submitBtn.onclick = async () => {
-        if (selected == null) return;
+        if (isEssay) {
+          if (!essayTa || !essayTa.value.trim()) return;
+        } else if (selected == null) return;
         if (isLast) {
           const ok = await openStudentFinishExamModal();
           if (!ok) return;
         }
         submitBtn.disabled = true;
         try {
+          const payload = isEssay
+            ? { questionId: q.id, essayText: essayTa.value.trim() }
+            : { questionId: q.id, choiceIndex: selected };
           const next = await api(`/api/student/${encodeURIComponent(sid)}/exam-submit`, {
             method: "POST",
-            body: JSON.stringify({ questionId: q.id, choiceIndex: selected }),
+            body: JSON.stringify(payload),
           });
           if (next.completed) {
             stopIntegrity();
