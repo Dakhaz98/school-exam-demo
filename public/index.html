@@ -76,7 +76,7 @@
               <strong>Tab 1 – Administration:</strong> Load a demo scenario on <strong>Rosters &amp; Excel</strong>, then use <strong>Live control</strong> → <strong>Open command center</strong> on a room: a <strong>new tab</strong> opens with the full room dashboard (same tools as the teacher view). If the pop-up is blocked, the command center opens in the current tab instead.
             </li>
             <li>
-              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong> → <strong>Join my assigned room</strong> when the lobby gate allows access. Use <strong>Student admission &amp; paper release</strong>: admit each student when you confirm presence, then <strong>Release question paper</strong> (required after admit — without it, questions stay hidden). Camera wall shows up to <strong>12</strong> tiles in view (policy); extra feeds scroll.
+              <strong>Tab 2 – Teacher:</strong> Quick fill <strong>teacher-1</strong> (or teacher-2) → Continue → <strong>Proctor desk</strong>. This page is for <strong>question files and essays</strong> only. When the lobby allows, press <strong>Join my assigned room</strong> — a <strong>new tab</strong> opens for live monitoring (cameras, admit, release paper). The monitoring tab does not show the upload panel.
             </li>
             <li>
               <strong>Tab 3 – Student:</strong> Quick fill <strong>std1 + exam key 12345</strong> (or set Role <strong>Student</strong>, id <strong>std2</strong> … <strong>stdN</strong> manually with the same key) → Continue → <strong>Student desk</strong> → allow camera and microphone → <strong>Begin exam</strong>. Waiting area first; after admit and paper release, questions one at a time (<strong>Submit answer</strong> / <strong>Finish exam</strong>).
@@ -484,7 +484,7 @@
           </div>
         </section>
 
-        <section data-tab="proctor" class="hidden">
+        <section data-tab="proctor" id="section-proctor" class="hidden proctor-surface-materials">
           <div class="panel proctor-teacher-panel" id="proctor-teacher-panel">
             <h2>Teacher question materials</h2>
             <p class="hint" id="proctor-teacher-upload-hint"></p>
@@ -600,7 +600,7 @@
                   </div>
                 </div>
 
-                <div class="proctor-progress-dock">
+                <div id="proctor-progress-dock" class="proctor-progress-dock">
                   <h3 class="proctor-progress-title">Live exam progress (the room)</h3>
                   <p class="proctor-desk-hint proctor-progress-copy">
                     Monitor each student has moved through the paper (e.g. question 4 of 10). Automatic alerts and live analysis stay on the Administration (head) room only — not here during live

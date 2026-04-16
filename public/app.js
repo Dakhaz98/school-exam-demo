@@ -1124,6 +1124,7 @@ function renderLogin() {
   }
   syncUserIdLabel();
   updateExamKeyRowVisibility();
+  setProctorSurfaceMode("materials");
 }
 
 function syncUserIdLabel() {
@@ -1147,6 +1148,18 @@ $("#role")?.addEventListener("change", () => {
 
 function setHeader(text) {
   $("#whoami").textContent = text;
+}
+
+function proctorSectionEl() {
+  return document.getElementById("section-proctor");
+}
+
+/** Materials: question uploads + essay inbox (hides live progress). Room: monitoring only (hides upload panel). */
+function setProctorSurfaceMode(mode) {
+  const sec = proctorSectionEl();
+  if (!sec) return;
+  sec.classList.remove("proctor-surface-materials", "proctor-surface-room");
+  sec.classList.add(mode === "room" ? "proctor-surface-room" : "proctor-surface-materials");
 }
 
 function showTab(name) {
@@ -1642,6 +1655,7 @@ async function enterApp() {
     }
   } else if (role === "proctor") {
     showTab("proctor");
+    setProctorSurfaceMode("materials");
   } else {
     showTab("student");
     socket.off("chat:private");
@@ -1718,6 +1732,7 @@ function logout() {
   }
   stopIntegrity();
   clearSession();
+  setProctorSurfaceMode("materials");
   renderLogin();
 }
 
@@ -2396,6 +2411,8 @@ async function refreshProctorWaitlist(staffId) {
 async function refreshProctorRoomProgress() {
   const s = loadSession();
   if (!s || s.role !== "proctor") return;
+  const sec = proctorSectionEl();
+  if (sec?.classList.contains("proctor-surface-materials")) return;
   const hint = $("#proctor-progress-hint");
   const body = $("#proctor-progress-body");
   if (!hint || !body) return;
@@ -2526,6 +2543,7 @@ async function joinProctorDeskFromSession() {
   };
 
   $("#btn-proctor-join")?.classList.add("hidden");
+  setProctorSurfaceMode("room");
   void refreshProctorRoomProgress();
 }
 
@@ -2608,6 +2626,8 @@ async function renderTeacherEssayInbox() {
 async function paintProctorTeacherPanel() {
   const s = loadSession();
   if (!s || s.role !== "proctor") return;
+  const sec = proctorSectionEl();
+  if (sec?.classList.contains("proctor-surface-room")) return;
   const hint = $("#proctor-teacher-upload-hint");
   const sel = $("#teacher-essay-model-select");
   if (!hint || !sel) return;

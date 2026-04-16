@@ -1457,6 +1457,15 @@ label.student-exam-choice-row:focus-within {
   margin: 0 0 0.65rem;
 }
 
+/* Teacher hub: uploads + essays only (no per-room progress table). Room tab: monitoring only (no upload panel). */
+section#section-proctor.proctor-surface-materials #proctor-progress-dock {
+  display: none !important;
+}
+
+section#section-proctor.proctor-surface-room #proctor-teacher-panel {
+  display: none !important;
+}
+
 .proctor-desk-room button.secondary {
   background: #334155;
   color: #e2e8f0;
