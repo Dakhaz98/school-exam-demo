@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-26";
+const SERVER_BUILD_ID = "exam-demo-build-27";
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
@@ -1325,13 +1325,36 @@ function publicSnapshot() {
     label: m.label,
     questionCount: m.questions.length,
     source: "demo",
+    subject: m.subject || "",
+    modelGrade: m.modelGrade || "",
   }));
+
+  const studentCountByGrade = {};
+  const subjectsByGrade = {};
+  for (const g of gradesList) {
+    studentCountByGrade[g] = state.students.filter((s) => normGrade(s.grade) === normGrade(g)).length;
+    const set = new Set();
+    for (const m of state.uploadedQuestionModels) {
+      const subj = String(m.subject || "").trim();
+      if (!subj) continue;
+      const mg = String(m.modelGrade || "").trim();
+      if (!mg || normGrade(mg) === normGrade(g)) set.add(subj);
+    }
+    subjectsByGrade[g] = [...set].sort((a, b) => a.localeCompare(b));
+  }
 
   return {
     studentsCount: state.students.length,
     teachersCount: state.teachers.length,
     grades: gradesList,
     gradesHint,
+    studentCountByGrade,
+    subjectsByGrade,
+    teachersRoster: state.teachers.map((t) => ({
+      staffId: t.staffId,
+      fullName: t.fullName,
+      supervisedGrade: t.supervisedGrade,
+    })),
     uploadedQuestionModelsCount: state.uploadedQuestionModels.length,
     teachersInGradePool: teacherPool,
     examSession: {
@@ -1514,7 +1537,31 @@ app.post("/api/admin/schedule/create", (req, res) => {
   if (model.uploadedByStaffId) subjectTeachers.add(model.uploadedByStaffId);
   let pool = teachersForGrade(state.teachers, targetGrade).filter((t) => !subjectTeachers.has(t.staffId));
   if (!pool.length) pool = teachersForGrade(state.teachers, targetGrade);
-  if (body.randomizeProctors !== false) assignProctorsRandom(rooms, pool);
+  const poolAll = teachersForGrade(state.teachers, targetGrade);
+  const poolAllIds = new Set(poolAll.map((t) => t.staffId));
+  const useRandom = body.randomizeProctors !== false;
+
+  if (!useRandom && body.manualProctors && typeof body.manualProctors === "object") {
+    for (const r of rooms) {
+      const raw = body.manualProctors[r.id] ?? body.manualProctors[r.label];
+      const arr = Array.isArray(raw) ? raw.map((x) => String(x || "").trim()).filter(Boolean) : [];
+      r.proctorStaffIds = arr.slice(0, monitors).filter((id) => poolAllIds.has(id));
+    }
+  } else if (useRandom) {
+    assignProctorsRandom(rooms, pool);
+  }
+
+  if (!useRandom) {
+    for (const r of rooms) {
+      if (r.proctorStaffIds.length < monitors) {
+        return res.status(400).json({
+          ok: false,
+          error: `When random assignment is off, assign ${monitors} proctor(s) in every room (use the per-room lists or "Assign proctors automatically").`,
+        });
+      }
+    }
+  }
+
   const prevRooms = state.examSession.rooms;
   const prevGrade = state.examSession.targetGrade;
   state.examSession.rooms = rooms;
@@ -1522,7 +1569,7 @@ app.post("/api/admin/schedule/create", (req, res) => {
   const val = publishProctorValidationFails();
   state.examSession.rooms = prevRooms;
   state.examSession.targetGrade = prevGrade;
-  if (!val.ok && body.randomizeProctors !== false) {
+  if (!val.ok && useRandom) {
     for (const r of rooms) r.proctorStaffIds = [];
   }
   const id = `sched-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;

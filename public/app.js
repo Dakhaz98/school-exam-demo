@@ -2847,9 +2847,244 @@ async function paintScheduleTable() {
   }
 }
 
+function normGradeUi(s) {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** Same room split as server: ceil(n/cap) rooms, sizes as balanced as possible (no fractional room count). */
+function previewRoomsSplit(studentCount, maxPerRoom) {
+  const n = studentCount;
+  const cap = Math.min(30, Math.max(1, Math.floor(Number(maxPerRoom) || 12)));
+  if (n <= 0) return { roomCount: 0, sizes: [], maxPer: cap };
+  const roomCount = Math.ceil(n / cap);
+  const base = Math.floor(n / roomCount);
+  let extra = n % roomCount;
+  const sizes = [];
+  for (let r = 0; r < roomCount; r++) {
+    sizes.push(base + (extra > 0 ? 1 : 0));
+    if (extra > 0) extra--;
+  }
+  return { roomCount, sizes, maxPer: cap };
+}
+
+function teachersForGradeUi(grade) {
+  const g = normGradeUi(grade);
+  return (stateCache?.teachersRoster || []).filter((t) => {
+    const sg = normGradeUi(t.supervisedGrade);
+    return sg === g || sg.includes(g);
+  });
+}
+
+function scheduleAddProctorPool(grade, modelId) {
+  let pool = teachersForGradeUi(grade);
+  const m = (stateCache?.teacherModels || []).find((x) => x.id === modelId);
+  if (m?.uploadedByStaffId) {
+    const rest = pool.filter((t) => t.staffId !== m.uploadedByStaffId);
+    if (rest.length) pool = rest;
+  }
+  return pool;
+}
+
+function scheduleAddResetSubjectSelect() {
+  const sel = $("#sched-subject");
+  if (!sel) return;
+  sel.innerHTML = "";
+  const o = document.createElement("option");
+  o.value = "";
+  o.textContent = "Select a grade first";
+  sel.appendChild(o);
+  sel.disabled = true;
+  sel.value = "";
+  const cust = $("#sched-subject-custom");
+  if (cust) {
+    cust.value = "";
+    cust.classList.add("hidden");
+  }
+}
+
+function scheduleAddFillSubjectSelect(grade) {
+  const sel = $("#sched-subject");
+  if (!sel) return;
+  sel.innerHTML = "";
+  if (!grade) {
+    scheduleAddResetSubjectSelect();
+    return;
+  }
+  const subs = (stateCache?.subjectsByGrade && stateCache.subjectsByGrade[grade]) || [];
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = subs.length ? "Choose subject…" : "No subject tags on models for this grade — use Other";
+  sel.appendChild(ph);
+  subs.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s;
+    o.textContent = s;
+    sel.appendChild(o);
+  });
+  const oc = document.createElement("option");
+  oc.value = "__custom__";
+  oc.textContent = "Other…";
+  sel.appendChild(oc);
+  sel.disabled = false;
+  sel.value = "";
+  const cust = $("#sched-subject-custom");
+  if (cust) {
+    cust.value = "";
+    cust.classList.add("hidden");
+  }
+}
+
+function scheduleAddSubjectValue() {
+  const sel = $("#sched-subject");
+  const cust = $("#sched-subject-custom");
+  if (!sel || sel.disabled) return "";
+  if (sel.value === "__custom__") return (cust && cust.value.trim()) || "";
+  return String(sel.value || "").trim();
+}
+
+function scheduleAddRefreshPreview() {
+  const grade = $("#sched-grade")?.value || "";
+  const sumEl = $("#sched-grade-summary");
+  const prevEl = $("#sched-rooms-preview");
+  const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+  const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+  if (sumEl) {
+    if (!grade) sumEl.textContent = "";
+    else if (!stateCache?.studentCountByGrade || stateCache.studentCountByGrade[grade] == null)
+      sumEl.textContent = "Student count unavailable — refresh roster.";
+    else sumEl.textContent = `${n} student${n === 1 ? "" : "s"} in ${grade}.`;
+  }
+  if (prevEl) {
+    if (!grade || n <= 0) {
+      prevEl.textContent = "";
+    } else {
+      const { roomCount, sizes } = previewRoomsSplit(n, cap);
+      const mn = Math.min(...sizes);
+      const mx = Math.max(...sizes);
+      const dist =
+        sizes.length <= 8
+          ? sizes.join(", ")
+          : `${sizes.slice(0, 6).join(", ")} … ${sizes[sizes.length - 2]}, ${sizes[sizes.length - 1]}`;
+      prevEl.textContent = `Rooms needed: ${roomCount} (max ${cap} students per room). Balanced sizes: ${dist} (${mn}–${mx} per room).`;
+    }
+  }
+}
+
+function scheduleAddRenderManualProctors() {
+  const wrap = $("#sched-manual-proctors");
+  const btn = $("#btn-sched-assign-proctors");
+  if (!wrap) return;
+  const grade = $("#sched-grade")?.value || "";
+  const random = !!$("#sched-random")?.checked;
+  const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+  const monitors = Number($("#sched-monitors")?.value) === 2 ? 2 : 1;
+  const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+  const { roomCount, sizes } = previewRoomsSplit(n, cap);
+
+  if (btn) {
+    if (!random && grade && roomCount > 0) btn.classList.remove("hidden");
+    else btn.classList.add("hidden");
+  }
+
+  if (random || !grade || roomCount < 1) {
+    wrap.innerHTML = "";
+    return;
+  }
+
+  const pool = teachersForGradeUi(grade);
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = pool.length ? "Choose teacher…" : "No teachers for this grade in roster";
+
+  wrap.innerHTML = "";
+  for (let i = 0; i < roomCount; i++) {
+    const rid = `room-${i + 1}`;
+    const label = `Exam room ${i + 1}`;
+    const sz = sizes[i] ?? 0;
+    const row = document.createElement("div");
+    row.className = "sched-room-proc-row";
+    const head = document.createElement("span");
+    head.innerHTML = `<strong>${escapeHtml(label)}</strong> <span class="hint">(${sz} students)</span>`;
+    row.appendChild(head);
+    for (let m = 0; m < monitors; m++) {
+      const lab = document.createElement("label");
+      lab.textContent = monitors === 1 ? "Proctor" : m === 0 ? "Proctor 1" : "Proctor 2";
+      const sel = document.createElement("select");
+      sel.className = "sched-proc-sel";
+      sel.dataset.room = rid;
+      sel.dataset.slot = String(m);
+      sel.appendChild(none.cloneNode(true));
+      pool.forEach((t) => {
+        const o = document.createElement("option");
+        o.value = t.staffId;
+        o.textContent = t.fullName || t.staffId;
+        sel.appendChild(o);
+      });
+      lab.appendChild(sel);
+      row.appendChild(lab);
+    }
+    wrap.appendChild(row);
+  }
+}
+
+function scheduleAddFillProctorsAuto() {
+  const grade = $("#sched-grade")?.value || "";
+  const modelId = $("#sched-model")?.value || "";
+  const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+  const monitors = Number($("#sched-monitors")?.value) === 2 ? 2 : 1;
+  const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+  const { roomCount } = previewRoomsSplit(n, cap);
+  const poolIds = scheduleAddProctorPool(grade, modelId).map((t) => t.staffId);
+  if (!poolIds.length) {
+    alert("No teachers in the roster for this grade (check Supervised Grade).");
+    return;
+  }
+  for (let i = 1; i <= roomCount; i++) {
+    const rid = `room-${i}`;
+    const shuffled = [...poolIds];
+    for (let a = shuffled.length - 1; a > 0; a--) {
+      const j = Math.floor(Math.random() * (a + 1));
+      [shuffled[a], shuffled[j]] = [shuffled[j], shuffled[a]];
+    }
+    for (let m = 0; m < monitors; m++) {
+      const sel = document.querySelector(`#sched-manual-proctors select.sched-proc-sel[data-room="${rid}"][data-slot="${m}"]`);
+      if (sel) sel.value = shuffled[m % shuffled.length] || "";
+    }
+  }
+}
+
+function scheduleAddCollectManualProctors(roomCount, monitors) {
+  const manual = {};
+  for (let i = 1; i <= roomCount; i++) {
+    const rid = `room-${i}`;
+    const arr = [];
+    for (let m = 0; m < monitors; m++) {
+      const sel = document.querySelector(`#sched-manual-proctors select.sched-proc-sel[data-room="${rid}"][data-slot="${m}"]`);
+      const v = sel && String(sel.value || "").trim();
+      if (v) arr.push(v);
+    }
+    manual[rid] = arr;
+  }
+  return manual;
+}
+
 function bindScheduleUi() {
   $("#btn-schedule-refresh")?.addEventListener("click", () => void paintScheduleTable());
-  $("#btn-schedule-open-add")?.addEventListener("click", () => {
+
+  const refreshScheduleAdd = () => {
+    scheduleAddRefreshPreview();
+    scheduleAddRenderManualProctors();
+  };
+
+  $("#btn-schedule-open-add")?.addEventListener("click", async () => {
+    try {
+      await refreshState();
+    } catch {
+      /* still open dialog */
+    }
     const dlg = document.getElementById("dlg-schedule-add");
     const g = $("#sched-grade");
     if (g && stateCache?.grades?.length) {
@@ -2860,6 +3095,12 @@ function bindScheduleUi() {
         o.textContent = gr;
         g.appendChild(o);
       }
+    } else if (g) {
+      g.innerHTML = "";
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = "Upload student roster first";
+      g.appendChild(o);
     }
     const ms = $("#sched-model");
     if (ms && stateCache?.teacherModels) {
@@ -2871,19 +3112,66 @@ function bindScheduleUi() {
         ms.appendChild(o);
       }
     }
+    const rnd = $("#sched-random");
+    if (rnd) rnd.checked = true;
+    scheduleAddResetSubjectSelect();
+    refreshScheduleAdd();
     dlg?.showModal?.();
+    g?.dispatchEvent(new Event("change"));
   });
+
+  $("#sched-grade")?.addEventListener("change", () => {
+    const grade = $("#sched-grade")?.value || "";
+    if (grade) scheduleAddFillSubjectSelect(grade);
+    else scheduleAddResetSubjectSelect();
+    refreshScheduleAdd();
+  });
+  $("#sched-cap")?.addEventListener("input", refreshScheduleAdd);
+  $("#sched-cap")?.addEventListener("change", refreshScheduleAdd);
+  $("#sched-monitors")?.addEventListener("change", refreshScheduleAdd);
+  $("#sched-random")?.addEventListener("change", refreshScheduleAdd);
+  $("#sched-model")?.addEventListener("change", refreshScheduleAdd);
+  $("#sched-subject")?.addEventListener("change", () => {
+    const sel = $("#sched-subject");
+    const cust = $("#sched-subject-custom");
+    if (!sel || !cust) return;
+    if (sel.value === "__custom__") {
+      cust.classList.remove("hidden");
+      cust.focus();
+    } else {
+      cust.classList.add("hidden");
+      cust.value = "";
+    }
+  });
+
+  $("#btn-sched-assign-proctors")?.addEventListener("click", () => scheduleAddFillProctorsAuto());
+
   $("#btn-schedule-add-cancel")?.addEventListener("click", () => document.getElementById("dlg-schedule-add")?.close?.());
   $("#btn-schedule-add-save")?.addEventListener("click", async () => {
     const grade = $("#sched-grade")?.value || "";
-    const subject = ($("#sched-subject") && $("#sched-subject").value.trim()) || "";
+    const subject = scheduleAddSubjectValue();
     const modelId = $("#sched-model")?.value || "";
     const start = $("#sched-start")?.value;
     const end = $("#sched-end")?.value;
+    const subjSel = $("#sched-subject");
     if (!grade || !modelId || !start || !end) {
       alert("Grade, model, start, and end are required.");
       return;
     }
+    if (!subject || (subjSel && !subjSel.disabled && !subjSel.value)) {
+      alert("Choose a subject (or Other and type a name).");
+      return;
+    }
+    if (subjSel?.value === "__custom__" && !($("#sched-subject-custom")?.value || "").trim()) {
+      alert("Enter a subject name for Other.");
+      return;
+    }
+    const maxStudentsPerRoom = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+    const monitorsPerRoom = Number($("#sched-monitors")?.value) === 2 ? 2 : 1;
+    const randomizeProctors = !!$("#sched-random")?.checked;
+    const n = stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+    const { roomCount } = previewRoomsSplit(n, maxStudentsPerRoom);
+
     const body = {
       targetGrade: grade,
       subject,
@@ -2891,11 +3179,14 @@ function bindScheduleUi() {
       examStartAt: new Date(start).toISOString(),
       examEndAt: new Date(end).toISOString(),
       lobbyOpensMinutesBefore: Number($("#sched-lobby")?.value) || 10,
-      maxStudentsPerRoom: Number($("#sched-cap")?.value) || 12,
-      monitorsPerRoom: Number($("#sched-monitors")?.value) || 1,
-      randomizeProctors: !!$("#sched-random")?.checked,
+      maxStudentsPerRoom,
+      monitorsPerRoom,
+      randomizeProctors,
       contactLine: ($("#sched-contact") && $("#sched-contact").value.trim()) || "",
     };
+    if (!randomizeProctors) {
+      body.manualProctors = scheduleAddCollectManualProctors(roomCount, monitorsPerRoom);
+    }
     try {
       await api("/api/admin/schedule/create", { method: "POST", body: JSON.stringify(body) });
       document.getElementById("dlg-schedule-add")?.close?.();

@@ -380,8 +380,19 @@
             <div id="form-schedule-add">
               <h3 style="margin-top: 0">Add scheduled exam</h3>
               <p class="hint">Uses the current student roster. Proctor randomization excludes the teacher who uploaded the selected model when possible.</p>
-              <label> Grade <select id="sched-grade" required></select> </label>
-              <label> Subject <input type="text" id="sched-subject" placeholder="e.g. Science" style="width: 100%" /> </label>
+              <div class="sched-grade-row">
+                <label class="sched-grade-label">
+                  Grade
+                  <select id="sched-grade" required></select>
+                </label>
+                <div id="sched-grade-summary" class="hint sched-grade-summary" aria-live="polite"></div>
+              </div>
+              <p id="sched-rooms-preview" class="hint sched-rooms-preview" aria-live="polite"></p>
+              <label>
+                Subject
+                <select id="sched-subject" disabled></select>
+                <input type="text" id="sched-subject-custom" class="hidden sched-subject-custom" placeholder="Enter subject" maxlength="120" />
+              </label>
               <label> Question model <select id="sched-model" required></select> </label>
               <label> Exam start <input type="datetime-local" id="sched-start" required /> </label>
               <label> Exam end <input type="datetime-local" id="sched-end" required /> </label>
@@ -392,6 +403,8 @@
                 <input type="checkbox" id="sched-random" checked />
                 <span>Random proctor assignment</span>
               </label>
+              <button type="button" class="secondary hidden" id="btn-sched-assign-proctors">Assign proctors automatically</button>
+              <div id="sched-manual-proctors" class="sched-manual-proctors"></div>
               <label> Contact line for students (optional) <input type="text" id="sched-contact" placeholder="e.g. exams@school.edu" style="width: 100%" /> </label>
               <div class="row" style="margin-top: 0.75rem; justify-content: flex-end; gap: 0.5rem">
                 <button type="button" class="secondary" id="btn-schedule-add-cancel">Cancel</button>
@@ -891,6 +904,6 @@
     </dialog>
 
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="/app.js?v=20260416a"></script>
+    <script src="/app.js?v=20260416b"></script>
   </body>
 </html>
