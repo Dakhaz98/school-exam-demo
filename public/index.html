@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>School Exam Platform (trial)</title>
-    <link rel="stylesheet" href="/styles.css?v=20260415c" />
+    <link rel="stylesheet" href="/styles.css?v=20260416a" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -119,6 +119,7 @@
         <div class="tabs" id="nav-tabs" role="tablist" aria-label="Main workspace">
           <button type="button" data-tabbtn="admin" id="nav-admin" class="hidden" role="tab" aria-selected="false">Rosters &amp; Excel</button>
           <button type="button" data-tabbtn="exam" id="nav-exam" class="hidden secondary" role="tab" aria-selected="false">Create exam</button>
+          <button type="button" data-tabbtn="schedule" id="nav-schedule" class="hidden secondary" role="tab" aria-selected="false">Exam schedule</button>
           <button type="button" data-tabbtn="live" id="nav-live" class="hidden secondary" role="tab" aria-selected="false">Live control</button>
           <button type="button" data-tabbtn="proctor" id="nav-proctor" class="hidden secondary" role="tab" aria-selected="false">Proctor desk</button>
           <button type="button" data-tabbtn="student" id="nav-student" class="hidden secondary" role="tab" aria-selected="false">Student desk</button>
@@ -242,11 +243,10 @@
               >
             </p>
             <p class="hint">
-              <strong>File format:</strong> <code>.xlsx</code> or <code>.xls</code> (first sheet only). One row per question.
-              <strong>Columns</strong> (header row, names are matched flexibly): <code>Question ID</code> (optional),
-              <code>Question Text</code> (required), then <code>Choice A</code> … <code>Choice D</code>, and optional <code>Correct</code>
-              (letter <code>A</code>–<code>D</code>, number <code>1</code>–<code>4</code>, or exact option text) for <strong>automatic multiple-choice scoring</strong>.
-              You need at least <strong>two</strong> non-empty choices; three or four are fine. This demo stores multiple-choice answers only (no essays or images).
+              <strong>File format:</strong> <code>.xlsx</code> / <code>.csv</code> (first sheet). Optional <code>Subject</code> and <code>Grade</code> on rows tag the model.
+              <strong>Question Type</strong> (optional column): <code>mcq</code> (default if omitted with 2+ choices), <code>true_false</code>,
+              <code>fill</code> (use <code>Correct</code> for accepted text; separate synonyms with <code>|</code>), <code>essay</code>.
+              <strong>Points</strong> column sets per-question marks. MCQ/TF/fill can be auto-scored; essays go to the teacher inbox (blind).
             </p>
             <div class="row" style="align-items: center; flex-wrap: wrap; gap: 0.5rem">
               <label>
@@ -345,6 +345,60 @@
             <button type="button" id="ex-publish">Publish exam configuration</button>
             <span id="ex-publish-msg" class="hint" style="margin-left: 0.5rem"></span>
           </div>
+        </section>
+
+        <section data-tab="schedule" class="hidden">
+          <div class="panel">
+            <h2>Scheduled exams</h2>
+            <p class="hint">
+              Create a draft schedule (rooms sized by max students per room), notify students in-app, then activate one row to push it to the live
+              <strong>Create exam</strong> session. Teachers may enter the monitoring room starting <strong>20 minutes</strong> before the scheduled start once the exam is published.
+            </p>
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem">
+              <button type="button" id="btn-schedule-refresh">Refresh table</button>
+              <button type="button" id="btn-schedule-open-add">Add exam…</button>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Grade</th>
+                    <th>Subject</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Model</th>
+                    <th>Rooms</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="schedule-exams-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <dialog id="dlg-schedule-add" class="exam-dialog">
+            <div id="form-schedule-add">
+              <h3 style="margin-top: 0">Add scheduled exam</h3>
+              <p class="hint">Uses the current student roster. Proctor randomization excludes the teacher who uploaded the selected model when possible.</p>
+              <label> Grade <select id="sched-grade" required></select> </label>
+              <label> Subject <input type="text" id="sched-subject" placeholder="e.g. Science" style="width: 100%" /> </label>
+              <label> Question model <select id="sched-model" required></select> </label>
+              <label> Exam start <input type="datetime-local" id="sched-start" required /> </label>
+              <label> Exam end <input type="datetime-local" id="sched-end" required /> </label>
+              <label> Lobby opens (minutes before start) <input type="number" id="sched-lobby" min="0" value="10" /> </label>
+              <label> Max students per room <input type="number" id="sched-cap" min="1" max="30" value="12" /> </label>
+              <label> Monitors per room <select id="sched-monitors"><option value="1">1</option><option value="2">2</option></select> </label>
+              <label class="honesty-row">
+                <input type="checkbox" id="sched-random" checked />
+                <span>Random proctor assignment</span>
+              </label>
+              <label> Contact line for students (optional) <input type="text" id="sched-contact" placeholder="e.g. exams@school.edu" style="width: 100%" /> </label>
+              <div class="row" style="margin-top: 0.75rem; justify-content: flex-end; gap: 0.5rem">
+                <button type="button" class="secondary" id="btn-schedule-add-cancel">Cancel</button>
+                <button type="button" id="btn-schedule-add-save">Save draft</button>
+              </div>
+            </div>
+          </dialog>
         </section>
 
         <section data-tab="live" class="hidden">
@@ -486,6 +540,15 @@
 
         <section data-tab="proctor" id="section-proctor" class="hidden proctor-surface-materials">
           <div class="panel proctor-teacher-panel" id="proctor-teacher-panel">
+            <div id="proctor-live-entry-bar" class="panel" style="margin-bottom: 0.85rem; padding: 0.75rem 1rem">
+              <div class="row" style="flex-wrap: wrap; align-items: center; gap: 0.75rem; justify-content: space-between">
+                <div>
+                  <strong>Your exam monitoring room</strong>
+                  <p class="hint" id="proctor-entry-hint" style="margin: 0.25rem 0 0">Checking…</p>
+                </div>
+                <button type="button" id="btn-proctor-live-entry" disabled>Open monitoring room</button>
+              </div>
+            </div>
             <h2>Teacher question materials</h2>
             <p class="hint" id="proctor-teacher-upload-hint"></p>
             <div class="row" style="flex-wrap: wrap; gap: 0.75rem; align-items: flex-end">
@@ -516,7 +579,10 @@
             </div>
             <h3 style="margin-top: 1.25rem">Essay inbox (blind)</h3>
             <p class="hint">Only submissions for prompts you authored. Full text is shown; student identity is hidden.</p>
-            <button type="button" class="secondary" id="btn-teacher-essay-refresh">Refresh inbox</button>
+            <div class="row" style="flex-wrap: wrap; gap: 0.5rem; margin-top: 0.35rem">
+              <button type="button" class="secondary" id="btn-teacher-essay-refresh">Refresh inbox</button>
+              <button type="button" id="btn-teacher-essay-queue" disabled>Grade essays (queue)…</button>
+            </div>
             <div id="teacher-essay-inbox" class="log" style="max-height: 220px; margin-top: 0.5rem"></div>
           </div>
           <div class="proctor-desk-room">
@@ -645,6 +711,10 @@
                 <strong>Open lobby now (testing)</strong> on the Live control tab.
               </p>
               <p id="student-gate-line" class="hint"></p>
+              <div id="student-notifications-panel" class="panel hidden" style="margin-top: 0.65rem">
+                <h3 style="margin-top: 0">School messages</h3>
+                <div id="student-notifications-body" class="hint" style="white-space: pre-wrap"></div>
+              </div>
             </div>
             <div id="student-video-home">
               <div class="video-wrap">
@@ -804,7 +874,23 @@
       </div>
     </main>
 
+    <dialog id="dlg-essay-grade-queue" class="exam-dialog">
+      <div id="essay-queue-inner">
+        <h3 id="essay-queue-title" style="margin-top: 0">Grade essay</h3>
+        <p class="hint" id="essay-queue-progress"></p>
+        <div id="essay-queue-readonly" class="essay-queue-readonly" style="white-space: pre-wrap; max-height: 14rem; overflow: auto; padding: 0.5rem; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0.35rem"></div>
+        <label style="display: block; margin-top: 0.75rem">
+          Score (0 – max)
+          <input type="number" id="essay-queue-score" min="0" step="0.5" style="width: 6rem" />
+        </label>
+        <div class="row" style="margin-top: 1rem; justify-content: flex-end; gap: 0.5rem">
+          <button type="button" class="secondary" id="btn-essay-queue-skip">Skip</button>
+          <button type="button" id="btn-essay-queue-done">Done</button>
+        </div>
+      </div>
+    </dialog>
+
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="/app.js?v=20260415d"></script>
+    <script src="/app.js?v=20260416a"></script>
   </body>
 </html>

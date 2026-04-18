@@ -14,12 +14,15 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-25";
+const SERVER_BUILD_ID = "exam-demo-build-26";
+
+/** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
+const PROCTOR_JOIN_LEAD_MINUTES = 20;
 
 /** Machine-readable feature list for procurement / demos (also drives the admin capability panel). */
 const PLATFORM_SHIPPED = [
   { id: "rosters", label: "Student & teacher rosters via Excel / CSV" },
-  { id: "questions_xlsx", label: "Question papers via Excel template with optional Correct column" },
+  { id: "questions_xlsx", label: "Question papers via Excel (MCQ, true/false, fill-in, essay) + optional Subject/Grade columns" },
   { id: "exam_wizard", label: "Exam session: grade, rooms, lobby window, schedule, model selection" },
   { id: "publish", label: "Publish with proctor validation" },
   { id: "lobby_gate", label: "Lobby window & time-based access (student / proctor)" },
@@ -86,7 +89,7 @@ const upload = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 });
 
-/** @typedef {{ id: string, text: string, choices?: string[], correctIndex?: number, type?: string, maxPoints?: number, authoredByStaffId?: string }} Question */
+/** @typedef {{ id: string, text: string, choices?: string[], correctIndex?: number, type?: string, maxPoints?: number, authoredByStaffId?: string, correctFill?: string }} Question */
 /** @typedef {{ id: string, label: string, questions: Question[] }} QuestionModel */
 
 /** @type {QuestionModel[]} */
@@ -252,28 +255,109 @@ function parseCorrectChoiceIndex(row, choices) {
   return i >= 0 ? i : undefined;
 }
 
+function parsePointsCell(row) {
+  const raw = String(getCell(row, ["Points", "Marks", "Score", "Point", "الدرجة"])).trim();
+  if (!raw) return null;
+  const n = parseFloat(raw.replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.min(100, n);
+}
+
+function normalizeQuestionType(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "";
+  if (/essay|written|مقال/.test(s)) return "essay";
+  const compact = s.replace(/\s+/g, "");
+  if (/true|false|^tf$|^t\/f$|صحيح|خطأ|صح\/خطأ/.test(compact) || /^tf$/i.test(s.trim())) return "tf";
+  if (/fill|blank|cloze|gap|فراغ|اكمل/.test(s)) return "fill";
+  if (/mcq|multiple|choice|اختيار|multi/.test(s)) return "mcq";
+  return "";
+}
+
+function normalizeFillAnswerForCompare(s) {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function fillAnswerMatches(studentAnswer, correctSpec) {
+  const st = normalizeFillAnswerForCompare(studentAnswer);
+  const parts = String(correctSpec || "")
+    .split("|")
+    .map((p) => normalizeFillAnswerForCompare(p))
+    .filter(Boolean);
+  if (!parts.length) return false;
+  return parts.some((p) => st === p);
+}
+
+/**
+ * @returns {{ questions: Question[], subject: string, modelGrade: string }}
+ */
 function parseQuestionModelSheet(buf, filename) {
   const rows = readSheetRowsFromBuffer(buf, filename);
   /** @type {Question[]} */
   const questions = [];
+  let subject = "";
+  let modelGrade = "";
   let auto = 0;
   for (const row of rows) {
+    const subjHint = String(getCell(row, ["Subject", "Course", "Material", "المادة"])).trim();
+    const gradeHint = String(getCell(row, ["Grade", "Level", "Class", "Stage", "الصف", "المرحلة"])).trim();
+    if (subjHint && !subject) subject = subjHint.slice(0, 120);
+    if (gradeHint && !modelGrade) modelGrade = gradeHint.slice(0, 80);
+
+    const qtype = normalizeQuestionType(getCell(row, ["Question Type", "Type", "Item Type", "نوع السؤال"]));
     const qid = String(getCell(row, ["Question ID", "QuestionId", "ID"])).trim();
     const text = String(getCell(row, ["Question Text", "Question", "Stem", "Text", "Prompt"])).trim();
+    const ptsRaw = parsePointsCell(row);
     const a = String(getCell(row, ["Choice A", "Option A", "A"])).trim();
     const b = String(getCell(row, ["Choice B", "Option B", "B"])).trim();
     const c = String(getCell(row, ["Choice C", "Option C", "C"])).trim();
     const d = String(getCell(row, ["Choice D", "Option D", "D"])).trim();
     const choices = [a, b, c, d].filter((x) => x.length > 0);
-    if (!text || choices.length < 2) continue;
-    const id = qid || `q${++auto}`;
-    const correctIndex = parseCorrectChoiceIndex(row, choices);
-    /** @type {Question} */
-    const q = { id, text, choices };
-    if (typeof correctIndex === "number") q.correctIndex = correctIndex;
-    questions.push(q);
+
+    if (!text) continue;
+
+    if (qtype === "essay") {
+      const id = qid || `q${++auto}`;
+      const mp = ptsRaw != null ? Math.min(100, Math.max(1, Math.floor(ptsRaw))) : 10;
+      questions.push({ id, text, type: "essay", choices: [], maxPoints: mp });
+      continue;
+    }
+
+    if (qtype === "fill") {
+      const key = String(getCell(row, ["Correct", "Correct answer", "Answer key", "Key", "Answer", "الإجابة"])).trim();
+      if (!key) continue;
+      const id = qid || `q${++auto}`;
+      const mp = ptsRaw != null ? Math.min(100, Math.max(1, Math.floor(ptsRaw))) : 1;
+      questions.push({ id, text, type: "fill", choices: [], correctFill: key, maxPoints: mp });
+      continue;
+    }
+
+    if (qtype === "tf") {
+      const id = qid || `q${++auto}`;
+      const correctRaw = String(getCell(row, ["Correct", "Correct answer", "Answer key", "Key", "Answer"])).trim();
+      let correctIndex = 0;
+      if (/^f(alse)?$/i.test(correctRaw) || /^0$/i.test(correctRaw) || /^خطأ/.test(correctRaw)) correctIndex = 1;
+      else if (/^t(rue)?$/i.test(correctRaw) || /^1$/i.test(correctRaw) || /^صح/.test(correctRaw)) correctIndex = 0;
+      else continue;
+      const mp = ptsRaw != null ? Math.min(100, Math.max(1, Math.floor(ptsRaw))) : 1;
+      questions.push({ id, text, type: "tf", choices: ["True", "False"], correctIndex, maxPoints: mp });
+      continue;
+    }
+
+    if (qtype === "mcq" || (!qtype && choices.length >= 2)) {
+      if (choices.length < 2) continue;
+      const id = qid || `q${++auto}`;
+      const correctIndex = parseCorrectChoiceIndex(row, choices);
+      /** @type {Question} */
+      const q = { id, text, type: "mcq", choices, maxPoints: ptsRaw != null ? Math.min(100, Math.max(1, Math.floor(ptsRaw))) : 1 };
+      if (typeof correctIndex === "number") q.correctIndex = correctIndex;
+      questions.push(q);
+    }
   }
-  return questions;
+  return { questions, subject, modelGrade };
 }
 
 function syncExamTargetGradeFromStudents() {
@@ -353,6 +437,14 @@ function splitStudentsIntoRooms(studentIds, roomCount) {
   return rooms;
 }
 
+/** Minimum number of rooms so each has at most `maxPerRoom` students (balanced split like splitStudentsIntoRooms). */
+function splitStudentsIntoRoomsWithMaxCap(studentIds, maxPerRoom) {
+  const n = studentIds.length;
+  if (n === 0 || maxPerRoom < 1) return [];
+  const roomCount = Math.ceil(n / maxPerRoom);
+  return splitStudentsIntoRooms(studentIds, roomCount);
+}
+
 function teachersForGrade(teachers, targetGrade) {
   const g = normGrade(targetGrade);
   return teachers.filter((t) => normGrade(t.supervisedGrade) === g || normGrade(t.supervisedGrade).includes(g));
@@ -374,9 +466,10 @@ const state = {
   teachers: [],
   /** @type {{ id: string, label: string, questions: Question[], uploadedAt: string, uploadedByStaffId?: string }[]} */
   uploadedQuestionModels: [],
-  /** @type {{ targetGrade: string, roomCount: number, lobbyOpensMinutesBefore: number, examStartAt: string, examEndAt: string, selectedModelId: string | null, paperDrawCount: number | null, rooms: { id: string, label: string, studentIds: string[], proctorStaffIds: string[], proctorsRequired: number }[], published: boolean, proctorMaxCameraTilesVisible?: number }} */
+  /** @type {{ targetGrade: string, subject?: string, roomCount: number, lobbyOpensMinutesBefore: number, examStartAt: string, examEndAt: string, selectedModelId: string | null, paperDrawCount: number | null, rooms: { id: string, label: string, studentIds: string[], proctorStaffIds: string[], proctorsRequired: number }[], published: boolean, proctorMaxCameraTilesVisible?: number }} */
   examSession: {
     targetGrade: "Grade 4",
+    subject: "",
     roomCount: 5,
     lobbyOpensMinutesBefore: 10,
     examStartAt: new Date(Date.now() + 86400000).toISOString(),
@@ -388,6 +481,10 @@ const state = {
     /** How many camera tiles fit in the proctor viewport before scrolling (admin 9–12 later). Default 12 = policy maximum. */
     proctorMaxCameraTilesVisible: 12,
   },
+  /** @type {{ id: string, targetGrade: string, subject: string, modelId: string, examStartAt: string, examEndAt: string, lobbyOpensMinutesBefore: number, maxStudentsPerRoom: number, published: boolean, cancelled: boolean, createdAt: string, rooms: object[], notificationBody?: string }[]} */
+  scheduledExams: [],
+  /** @type {{ id: string, at: string, targetGrade: string, subject: string, examStartAt: string, body: string }[]} */
+  studentNotifications: [],
   /** @type {Record<string, Record<string, number>>} */
   answers: {},
   /** @type {{ id: string, at: string, action: string, detail: string, actorRole: string | null, actorId: string | null }[]} */
@@ -433,7 +530,10 @@ try {
   const v = ex.proctorMaxCameraTilesVisible;
   if (typeof v !== "number" || !Number.isFinite(v)) ex.proctorMaxCameraTilesVisible = 12;
   else ex.proctorMaxCameraTilesVisible = Math.min(12, Math.max(9, Math.floor(v)));
+  if (typeof ex.subject !== "string") ex.subject = "";
 }
+if (!Array.isArray(state.scheduledExams)) state.scheduledExams = [];
+if (!Array.isArray(state.studentNotifications)) state.studentNotifications = [];
 ensureRoomsBuilt();
 
 const MAX_AUDIT = 500;
@@ -484,6 +584,7 @@ function countTeacherUploadedModels(staffId) {
 
 function isEssayQuestion(q) {
   if (!q) return false;
+  if (q.type === "fill" || q.type === "tf" || q.type === "mcq") return false;
   if (q.type === "essay") return true;
   return !Array.isArray(q.choices) || q.choices.length < 2;
 }
@@ -543,6 +644,23 @@ function computeMcqScoreForStudent(studentId, opts = {}) {
     const q = model.questions.find((x) => x.id === qid);
     if (!q) continue;
     if (isEssayQuestion(q)) continue;
+    if (q.type === "fill") {
+      if (!q.correctFill) {
+        perQuestion.push({ questionId: q.id, status: "no_key" });
+        continue;
+      }
+      questionsWithKey++;
+      const stored = ans[q.id];
+      if (typeof stored !== "string" || !String(stored).trim()) {
+        perQuestion.push({ questionId: q.id, status: "unanswered" });
+        continue;
+      }
+      answeredWithKey++;
+      const ok = fillAnswerMatches(stored, q.correctFill);
+      if (ok) correctCount++;
+      perQuestion.push({ questionId: q.id, status: ok ? "correct" : "wrong" });
+      continue;
+    }
     if (typeof q.correctIndex !== "number") {
       perQuestion.push({ questionId: q.id, status: "no_key" });
       continue;
@@ -601,6 +719,28 @@ function computeItemAnalysis() {
     if (isEssayQuestion(q)) {
       return { questionId: q.id, text: q.text, keyed: false, attempts: 0, correct: 0, pCorrect: null, kind: "essay" };
     }
+    if (q.type === "fill" && q.correctFill) {
+      let attempts = 0;
+      let correct = 0;
+      for (const s of gradeStudents) {
+        const ids = state.studentPaperSets[s.studentId];
+        if (ids && ids.length > 0 && !ids.includes(q.id)) continue;
+        const stAns = state.answers[s.studentId]?.[q.id];
+        if (typeof stAns !== "string" || !stAns.trim()) continue;
+        attempts++;
+        if (fillAnswerMatches(stAns, q.correctFill)) correct++;
+      }
+      const pCorrect = attempts > 0 ? Math.round((correct / attempts) * 1000) / 10 : null;
+      return {
+        questionId: q.id,
+        text: q.text.slice(0, 120),
+        keyed: true,
+        kind: "fill",
+        attempts,
+        correct,
+        pCorrect,
+      };
+    }
     if (typeof q.correctIndex !== "number") {
       return { questionId: q.id, text: q.text, keyed: false, attempts: 0, correct: 0, pCorrect: null };
     }
@@ -641,13 +781,19 @@ function registerUploadedQuestionModel(questions, labelCore, opts = {}) {
   const id = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const core = String(labelCore || "paper").trim().slice(0, 120);
   const label = (uploadedByStaffId ? `Teacher upload: ${core}` : `Uploaded: ${core}`).slice(0, 180);
-  state.uploadedQuestionModels.push({
+  /** @type {{ id: string, label: string, questions: Question[], uploadedAt: string, uploadedByStaffId?: string, subject?: string, modelGrade?: string }} */
+  const rec = {
     id,
     label,
     questions,
     uploadedAt: new Date().toISOString(),
     ...(uploadedByStaffId ? { uploadedByStaffId } : {}),
-  });
+  };
+  const sub = String(opts.subject || "").trim().slice(0, 120);
+  const mg = String(opts.modelGrade || "").trim().slice(0, 80);
+  if (sub) rec.subject = sub;
+  if (mg) rec.modelGrade = mg;
+  state.uploadedQuestionModels.push(rec);
   if (autoSelect) state.examSession.selectedModelId = id;
   return id;
 }
@@ -996,9 +1142,14 @@ function buildShuffledQuestionForStudent(sid, qid) {
     const maxPoints = Math.min(100, Math.max(1, Math.floor(Number(q.maxPoints) || 10)));
     return { id: q.id, text: q.text, type: "essay", maxPoints };
   }
+  if (q.type === "fill") {
+    const maxPoints = Math.min(100, Math.max(1, Math.floor(Number(q.maxPoints) || 1)));
+    return { id: q.id, text: q.text, type: "fill", maxPoints };
+  }
   const perm = shuffle(q.choices.map((_, i) => i), sid + qid);
   const choices = perm.map((i) => q.choices[i]);
-  return { id: q.id, text: q.text, choices };
+  const qt = q.type === "tf" ? "tf" : "mcq";
+  return { id: q.id, text: q.text, type: qt, choices };
 }
 
 /** Ensures question order exists for sid; preserves issued order if already present. */
@@ -1022,7 +1173,9 @@ function initStudentPaperIfNeeded(sid, req) {
   const prev = state.answers[sid] || {};
   const next = {};
   for (const qid of order) {
-    if (typeof prev[qid] === "number") next[qid] = prev[qid];
+    const v = prev[qid];
+    if (typeof v === "number") next[qid] = v;
+    else if (typeof v === "string") next[qid] = v;
   }
   state.answers[sid] = next;
   return { ok: true, model, g };
@@ -1033,6 +1186,11 @@ function lobbyOpensAt() {
   const start = new Date(ex.examStartAt).getTime();
   const mins = Number(ex.lobbyOpensMinutesBefore) || 10;
   return start - mins * 60 * 1000;
+}
+
+function formatExamHeading(ex, paperLabel) {
+  const subj = ex.subject && String(ex.subject).trim() ? `${String(ex.subject).trim()} · ` : "";
+  return `${subj}${ex.targetGrade || "Exam"} · ${paperLabel}`;
 }
 
 function gateFor(role, userId, req) {
@@ -1094,10 +1252,29 @@ function gateFor(role, userId, req) {
   if (role === "proctor") {
     const t = teacherById(userId);
     if (!t) return { allowed: false, reason: "unknown_staff", ...base };
+    if (!state.examSession.published) {
+      return { allowed: false, reason: "exam_not_published", message: "Exam is not published yet.", ...base };
+    }
+    const startMs = new Date(ex.examStartAt).getTime();
+    const earliestProctorJoin = startMs - PROCTOR_JOIN_LEAD_MINUTES * 60 * 1000;
+    if (now < earliestProctorJoin) {
+      return {
+        allowed: false,
+        reason: "proctor_room_early",
+        message: `Live monitoring opens ${PROCTOR_JOIN_LEAD_MINUTES} minutes before the scheduled start.`,
+        earliestProctorJoinAt: new Date(earliestProctorJoin).toISOString(),
+        ...base,
+      };
+    }
     ensureRoomsBuilt();
     const assigned = state.examSession.rooms.some((r) => r.proctorStaffIds.includes(userId));
     if (!assigned) return { allowed: false, reason: "not_assigned", ...base };
-    return { allowed: true, reason: "ok", ...base };
+    return {
+      allowed: true,
+      reason: "ok",
+      earliestProctorJoinAt: new Date(earliestProctorJoin).toISOString(),
+      ...base,
+    };
   }
 
   return { allowed: false, reason: "unknown_role", ...base };
@@ -1140,6 +1317,8 @@ function publicSnapshot() {
     questionCount: m.questions.length,
     source: "uploaded",
     uploadedByStaffId: m.uploadedByStaffId || null,
+    subject: m.subject || "",
+    modelGrade: m.modelGrade || "",
   }));
   const builtinMeta = teacherModels.map((m) => ({
     id: m.id,
@@ -1157,10 +1336,12 @@ function publicSnapshot() {
     teachersInGradePool: teacherPool,
     examSession: {
       targetGrade: ex.targetGrade,
+      subject: ex.subject || "",
       roomCount: ex.roomCount,
       lobbyOpensMinutesBefore: ex.lobbyOpensMinutesBefore,
       examStartAt: ex.examStartAt,
       examEndAt: ex.examEndAt,
+      earliestProctorJoinAt: new Date(new Date(ex.examStartAt).getTime() - PROCTOR_JOIN_LEAD_MINUTES * 60 * 1000).toISOString(),
       selectedModelId: ex.selectedModelId,
       paperDrawCount: ex.paperDrawCount != null ? ex.paperDrawCount : null,
       published: ex.published,
@@ -1262,6 +1443,36 @@ function broadcastState() {
   io.emit("state:update", publicSnapshot());
 }
 
+function pushStudentScheduleNotification(targetGrade, subject, examStartAt, contactLine) {
+  const line = String(contactLine || "").trim() || "contact your school administration immediately.";
+  const when = new Date(examStartAt).toLocaleString();
+  const body = `Dear student in ${targetGrade}: an exam for ${subject || "your subject"} is scheduled for ${when} (local time). You will receive another reminder with the exam link before the session begins. If you do not receive the link at least 10 minutes before the start, ${line}`;
+  state.studentNotifications.push({
+    id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    at: new Date().toISOString(),
+    targetGrade,
+    subject: subject || "",
+    examStartAt,
+    body,
+  });
+  while (state.studentNotifications.length > 200) state.studentNotifications.shift();
+}
+
+function applyScheduledExamToRuntime(entry, opts = {}) {
+  const ex = state.examSession;
+  ex.targetGrade = entry.targetGrade;
+  ex.subject = entry.subject || "";
+  ex.roomCount = entry.rooms?.length || entry.roomCount || 1;
+  ex.lobbyOpensMinutesBefore = Number(entry.lobbyOpensMinutesBefore) || 10;
+  ex.examStartAt = entry.examStartAt;
+  ex.examEndAt = entry.examEndAt;
+  ex.selectedModelId = entry.modelId;
+  ex.rooms = JSON.parse(JSON.stringify(entry.rooms || []));
+  ex.published = opts.publish !== undefined ? !!opts.publish : !!entry.published;
+  resetStudentExamRuntimeFlags();
+  clearIssuedPapers();
+}
+
 app.use(express.json({ limit: "2mb" }));
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -1273,6 +1484,113 @@ app.use((req, res, next) => {
     res.setHeader("X-School-Exam-Build", SERVER_BUILD_ID);
   }
   next();
+});
+
+app.get("/api/admin/schedule/list", (_req, res) => {
+  res.json({ ok: true, exams: state.scheduledExams.slice().reverse() });
+});
+
+app.post("/api/admin/schedule/create", (req, res) => {
+  const body = req.body || {};
+  const targetGrade = String(body.targetGrade || "").trim();
+  const subject = String(body.subject || "").trim().slice(0, 120);
+  const modelId = String(body.modelId || "").trim();
+  if (!targetGrade || !modelId || !body.examStartAt || !body.examEndAt) {
+    return res.status(400).json({ ok: false, error: "targetGrade, modelId, examStartAt, and examEndAt are required." });
+  }
+  const model = getModel(modelId);
+  if (!model) return res.status(400).json({ ok: false, error: "Unknown question model id." });
+  const maxPer = Math.min(30, Math.max(1, Math.floor(Number(body.maxStudentsPerRoom) || 12)));
+  const monitors = Number(body.monitorsPerRoom) === 2 ? 2 : 1;
+  const inGrade = state.students.filter((s) => normGrade(s.grade) === normGrade(targetGrade)).map((s) => s.studentId);
+  if (!inGrade.length) {
+    return res.status(400).json({ ok: false, error: "No students in that grade in the roster. Upload students first." });
+  }
+  const rooms = splitStudentsIntoRoomsWithMaxCap(inGrade, maxPer);
+  for (const r of rooms) {
+    r.proctorsRequired = monitors;
+  }
+  const subjectTeachers = new Set();
+  if (model.uploadedByStaffId) subjectTeachers.add(model.uploadedByStaffId);
+  let pool = teachersForGrade(state.teachers, targetGrade).filter((t) => !subjectTeachers.has(t.staffId));
+  if (!pool.length) pool = teachersForGrade(state.teachers, targetGrade);
+  if (body.randomizeProctors !== false) assignProctorsRandom(rooms, pool);
+  const prevRooms = state.examSession.rooms;
+  const prevGrade = state.examSession.targetGrade;
+  state.examSession.rooms = rooms;
+  state.examSession.targetGrade = targetGrade;
+  const val = publishProctorValidationFails();
+  state.examSession.rooms = prevRooms;
+  state.examSession.targetGrade = prevGrade;
+  if (!val.ok && body.randomizeProctors !== false) {
+    for (const r of rooms) r.proctorStaffIds = [];
+  }
+  const id = `sched-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+  const entry = {
+    id,
+    targetGrade,
+    subject,
+    modelId,
+    examStartAt: String(body.examStartAt),
+    examEndAt: String(body.examEndAt),
+    lobbyOpensMinutesBefore: Number(body.lobbyOpensMinutesBefore) || 10,
+    maxStudentsPerRoom: maxPer,
+    monitorsPerRoom: monitors,
+    rooms,
+    published: false,
+    cancelled: false,
+    createdAt: new Date().toISOString(),
+  };
+  state.scheduledExams.push(entry);
+  pushStudentScheduleNotification(targetGrade, subject, entry.examStartAt, body.contactLine);
+  appendAudit("schedule_create", id, { actorRole: "admin", actorId: "admin" });
+  broadcastState();
+  try {
+    sqliteStore.persistCoreImmediate(state);
+  } catch (e) {
+    logger.logError("schedule create persist", e);
+  }
+  res.json({ ok: true, exam: entry, state: publicSnapshot() });
+});
+
+app.post("/api/admin/schedule/cancel/:id", (req, res) => {
+  const id = req.params.id;
+  const ex = state.scheduledExams.find((x) => x.id === id);
+  if (!ex) return res.status(404).json({ ok: false, error: "Not found." });
+  ex.cancelled = true;
+  appendAudit("schedule_cancel", id, { actorRole: "admin", actorId: "admin" });
+  broadcastState();
+  try {
+    sqliteStore.persistCoreImmediate(state);
+  } catch (e) {
+    logger.logError("schedule cancel persist", e);
+  }
+  res.json({ ok: true, state: publicSnapshot() });
+});
+
+app.post("/api/admin/schedule/activate/:id", (req, res) => {
+  const id = req.params.id;
+  const ex = state.scheduledExams.find((x) => x.id === id && !x.cancelled);
+  if (!ex) return res.status(404).json({ ok: false, error: "Not found or cancelled." });
+  applyScheduledExamToRuntime(ex, { publish: req.body?.publish !== false });
+  ex.published = state.examSession.published;
+  appendAudit("schedule_activate", id, { actorRole: "admin", actorId: "admin" });
+  broadcastState();
+  try {
+    sqliteStore.persistCoreImmediate(state);
+  } catch (e) {
+    logger.logError("schedule activate persist", e);
+  }
+  res.json({ ok: true, state: publicSnapshot() });
+});
+
+app.get("/api/student/:studentId/notifications", (req, res) => {
+  const sid = req.params.studentId;
+  const st = studentById(sid);
+  if (!st) return res.status(404).json({ ok: false, error: "Unknown student." });
+  const g = normGrade(st.grade);
+  const items = state.studentNotifications.filter((n) => normGrade(n.targetGrade) === g).slice(-20).reverse();
+  res.json({ ok: true, items });
 });
 
 app.get("/api/admin/template/students", (_req, res) => {
@@ -1313,9 +1631,36 @@ app.get("/api/admin/template/teachers.csv", (_req, res) => {
 
 function questionPaperTemplateBuffer() {
   const rows = [
-    ["Question ID", "Question Text", "Choice A", "Choice B", "Choice C", "Choice D", "Correct"],
-    ["q1", "Sample question text here", "First option", "Second option", "Third option", "Fourth option", "B"],
-    ["", "", "", "", "", "", ""],
+    [
+      "Subject",
+      "Grade",
+      "Question Type",
+      "Question ID",
+      "Question Text",
+      "Points",
+      "Choice A",
+      "Choice B",
+      "Choice C",
+      "Choice D",
+      "Correct",
+    ],
+    [
+      "Science",
+      "Grade 4",
+      "mcq",
+      "q1",
+      "Sample multiple-choice stem",
+      "2",
+      "Option A",
+      "Option B",
+      "Option C",
+      "",
+      "B",
+    ],
+    ["Science", "Grade 4", "true_false", "q2", "Ice is frozen water.", "1", "", "", "", "", "True"],
+    ["Science", "Grade 4", "fill", "q3", "Water boils at 100 °C at sea level (unit: ___).", "1", "", "", "", "", "°C|Celsius"],
+    ["Science", "Grade 4", "essay", "q4", "Explain one experiment you would use to show photosynthesis.", "10", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", ""],
   ];
   return xlsxBufferFromRows("Questions", rows);
 }
@@ -1494,18 +1839,25 @@ function handleQuestionModelUpload(req, res) {
     });
   }
   try {
-    const questions = parseQuestionModelSheet(req.file.buffer, req.file.originalname);
+    const parsed = parseQuestionModelSheet(req.file.buffer, req.file.originalname);
+    const questions = parsed.questions;
     if (!questions.length) {
       return res.status(400).json({
         ok: false,
-        error: "No valid questions found. Use Question Text plus at least Choice A and Choice B (see template download).",
+        error:
+          "No valid questions found. Use the template: MCQ needs Question Text + two or more choices; True/False needs Correct (T/F); Fill-in needs Correct answer; Essay needs Question Type = essay.",
       });
     }
     const labelRaw = (req.body && (req.body.modelLabel || req.body.label)) || req.file.originalname || "Uploaded paper";
     const label = String(labelRaw).trim().slice(0, 120);
     const autoSelect = String(req.body?.autoSelect || "true").toLowerCase() !== "false";
     const uploadedBy = staffId && teacherRow ? staffId : null;
-    const id = registerUploadedQuestionModel(questions, label, { uploadedByStaffId: uploadedBy, autoSelect });
+    const id = registerUploadedQuestionModel(questions, label, {
+      uploadedByStaffId: uploadedBy,
+      autoSelect,
+      subject: parsed.subject,
+      modelGrade: parsed.modelGrade,
+    });
     clearIssuedPapers();
     appendAudit(
       "upload_question_model",
@@ -1532,6 +1884,8 @@ app.get("/api/teacher/:staffId/my-question-models", (req, res) => {
       id: m.id,
       label: m.label,
       questionCount: m.questions.length,
+      subject: m.subject || "",
+      modelGrade: m.modelGrade || "",
     }));
   res.json({ ok: true, models: list, slotsUsed: list.length, slotsMax: MAX_TEACHER_QUESTION_MODELS });
 });
@@ -1893,7 +2247,7 @@ app.get("/api/proctor/:staffId/room", (req, res) => {
   const ex = state.examSession;
   const model = ex.selectedModelId ? getModel(ex.selectedModelId) : null;
   const paperLabel = model?.label || "Exam";
-  const examHeading = `${ex.targetGrade || "Exam"} · ${paperLabel}`;
+  const examHeading = formatExamHeading(ex, paperLabel);
   res.json({ roomId: r.id, roomName: r.label, gate: g, examHeading });
 });
 
@@ -2058,7 +2412,7 @@ app.get("/api/student/:studentId/paper", (req, res) => {
   const ex = state.examSession;
   const model = ex.selectedModelId ? getModel(ex.selectedModelId) : null;
   const paperLabel = model?.label || "Exam";
-  const examHeading = `${ex.targetGrade || "Exam"} · ${paperLabel}`;
+  const examHeading = formatExamHeading(ex, paperLabel);
   res.json({
     delivery: "sequential",
     paperQuestionCount: order.length,
@@ -2136,7 +2490,7 @@ app.post("/api/student/:studentId/exam-submit", (req, res) => {
   if (init.err) return res.status(init.err).json(init.body);
   const g = gateFor("student", sid, req);
   if (!g.allowed) return res.status(403).json({ error: g.reason });
-  const { questionId, choiceIndex, essayText } = req.body || {};
+  const { questionId, choiceIndex, essayText, fillText } = req.body || {};
   if (!questionId) return res.status(400).json({ error: "Bad payload" });
   const order = state.studentPaperSets[sid];
   let idx = state.studentPaperCursor[sid];
@@ -2167,6 +2521,11 @@ app.post("/api/student/:studentId/exam-submit", (req, res) => {
     state.answers[sid][questionId] = -1;
     writeExamEvidenceLine(sid, { type: "essay_submit", questionId, blindId, stepIndex: idx });
     appendAudit("essay_submit", `blind ${blindId} · q ${questionId}`, { actorRole: "student", actorId: sid });
+  } else if (q.type === "fill") {
+    const txt = String(fillText ?? "").trim();
+    if (!txt) return res.status(400).json({ error: "Answer required." });
+    state.answers[sid][questionId] = txt.slice(0, 8000);
+    writeExamEvidenceLine(sid, { type: "fill_submit", questionId, stepIndex: idx });
   } else {
     if (typeof choiceIndex !== "number") return res.status(400).json({ error: "Bad payload" });
     state.answers[sid][questionId] = choiceIndex;

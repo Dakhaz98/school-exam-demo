@@ -1259,7 +1259,7 @@ function showTab(name) {
     btn.setAttribute("aria-selected", on ? "true" : "false");
   });
   setProctorDeskFullBleed(name === "proctor");
-  if (name === "admin" || name === "exam" || name === "live" || name === "proctor" || name === "student") {
+  if (name === "admin" || name === "exam" || name === "schedule" || name === "live" || name === "proctor" || name === "student") {
     const main = $("#main-content");
     if (main) {
       try {
@@ -1285,9 +1285,33 @@ async function refreshState() {
     paintExamWizard();
     paintLiveTab();
     void paintPlatformCapabilities();
+    void paintScheduleTable();
   }
   if (session?.role === "proctor") {
     void paintProctorTeacherPanel();
+    void updateProctorEntryBar();
+  }
+  if (session?.role === "student") {
+    void paintStudentNotifications();
+  }
+}
+
+async function paintStudentNotifications() {
+  const s = loadSession();
+  const panel = $("#student-notifications-panel");
+  const body = $("#student-notifications-body");
+  if (!s || s.role !== "student" || !panel || !body) return;
+  try {
+    const d = await api(`/api/student/${encodeURIComponent(s.userId)}/notifications`);
+    const items = d.items || [];
+    if (!items.length) {
+      panel.classList.add("hidden");
+      return;
+    }
+    panel.classList.remove("hidden");
+    body.textContent = items.map((x) => x.body).join("\n\n—\n\n");
+  } catch {
+    panel.classList.add("hidden");
   }
 }
 
@@ -1726,6 +1750,7 @@ async function enterApp() {
 
   $("#nav-admin").classList.toggle("hidden", role !== "admin");
   $("#nav-exam").classList.toggle("hidden", role !== "admin");
+  $("#nav-schedule")?.classList.toggle("hidden", role !== "admin");
   $("#nav-live").classList.toggle("hidden", role !== "admin");
   $("#nav-proctor").classList.toggle("hidden", role !== "proctor");
   $("#nav-student").classList.toggle("hidden", role !== "student");
@@ -2661,41 +2686,11 @@ async function renderTeacherEssayInbox() {
       body.textContent = it.fullText || it.excerpt || "";
       wrap.appendChild(body);
       if (it.status === "pending") {
-        const row = document.createElement("div");
-        row.className = "row";
-        row.style.marginTop = "0.35rem";
-        row.style.gap = "0.5rem";
-        row.style.alignItems = "center";
-        const inp = document.createElement("input");
-        inp.type = "number";
-        inp.min = "0";
-        inp.max = String(it.maxPoints || 10);
-        inp.step = "any";
-        inp.style.width = "5.5rem";
-        inp.placeholder = "Score";
-        const go = document.createElement("button");
-        go.type = "button";
-        go.textContent = "Save score";
-        go.addEventListener("click", async () => {
-          const score = Number(inp.value);
-          if (!Number.isFinite(score)) {
-            alert("Enter a numeric score.");
-            return;
-          }
-          try {
-            await api(`/api/teacher/${encodeURIComponent(s.userId)}/essay-grade`, {
-              method: "POST",
-              body: JSON.stringify({ blindId: it.blindId, score }),
-            });
-            await renderTeacherEssayInbox();
-            await refreshState();
-          } catch (err) {
-            alert(err.message || String(err));
-          }
-        });
-        row.appendChild(inp);
-        row.appendChild(go);
-        wrap.appendChild(row);
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.style.marginTop = "0.25rem";
+        p.textContent = "Pending grading — use “Grade essays (queue)…” above.";
+        wrap.appendChild(p);
       } else {
         const p = document.createElement("p");
         p.className = "hint";
@@ -2708,6 +2703,207 @@ async function renderTeacherEssayInbox() {
   } catch (e) {
     box.textContent = e.message || String(e);
   }
+}
+
+/** @type {{ blindId: string; maxPoints: number; fullText: string }[]} */
+let essayGradingQueue = [];
+let essayGradingIndex = 0;
+
+async function updateProctorEntryBar() {
+  const s = loadSession();
+  const btn = $("#btn-proctor-live-entry");
+  const hint = $("#proctor-entry-hint");
+  if (!s || s.role !== "proctor" || !btn || !hint) return;
+  if (proctorSectionEl()?.classList.contains("proctor-surface-room")) {
+    btn.classList.add("hidden");
+    return;
+  }
+  btn.classList.remove("hidden");
+  try {
+    const g = await api(`/api/gate?role=proctor&userId=${encodeURIComponent(s.userId)}`);
+    if (g.allowed) {
+      btn.disabled = false;
+      hint.textContent = "You may open the live monitoring room now.";
+    } else if (g.reason === "proctor_room_early") {
+      btn.disabled = true;
+      const t = g.earliestProctorJoinAt ? new Date(g.earliestProctorJoinAt).toLocaleString() : "";
+      hint.textContent = t
+        ? `The monitoring room opens at ${t} (local) — 20 minutes before the scheduled exam start.`
+        : g.message || "Not yet available.";
+    } else if (g.reason === "exam_not_published") {
+      btn.disabled = true;
+      hint.textContent = "The exam is not published yet.";
+    } else if (g.reason === "not_assigned") {
+      btn.disabled = true;
+      hint.textContent = "You are not assigned to a room for this exam.";
+    } else if (g.reason === "exam_ended") {
+      btn.disabled = true;
+      hint.textContent = "This exam window has ended.";
+    } else {
+      btn.disabled = true;
+      hint.textContent = g.message || "Not available.";
+    }
+  } catch (e) {
+    btn.disabled = true;
+    hint.textContent = e.message || String(e);
+  }
+}
+
+async function openEssayGradingQueueModal() {
+  const s = loadSession();
+  const dlg = document.getElementById("dlg-essay-grade-queue");
+  if (!s || s.role !== "proctor" || !dlg || !dlg.showModal) return;
+  const d = await api(`/api/teacher/${encodeURIComponent(s.userId)}/essay-inbox`);
+  essayGradingQueue = (d.items || [])
+    .filter((it) => it.status === "pending")
+    .map((it) => ({ blindId: it.blindId, maxPoints: Number(it.maxPoints) || 10, fullText: it.fullText || it.excerpt || "" }));
+  essayGradingIndex = 0;
+  if (!essayGradingQueue.length) {
+    alert("No pending essays.");
+    return;
+  }
+  renderEssayQueueStep();
+  dlg.showModal();
+}
+
+function renderEssayQueueStep() {
+  const dlg = document.getElementById("dlg-essay-grade-queue");
+  if (essayGradingIndex >= essayGradingQueue.length) {
+    dlg?.close?.();
+    return;
+  }
+  const it = essayGradingQueue[essayGradingIndex];
+  if (!it) {
+    dlg?.close?.();
+    return;
+  }
+  const maxP = Math.min(100, Math.max(1, Math.floor(it.maxPoints)));
+  $("#essay-queue-progress").textContent = `${essayGradingIndex + 1} of ${essayGradingQueue.length}`;
+  $("#essay-queue-readonly").textContent = it.fullText;
+  const inp = $("#essay-queue-score");
+  if (inp) {
+    inp.min = "0";
+    inp.max = String(maxP);
+    inp.value = "";
+  }
+}
+
+async function paintScheduleTable() {
+  const body = $("#schedule-exams-body");
+  if (!body) return;
+  try {
+    const d = await api("/api/admin/schedule/list");
+    body.innerHTML = "";
+    for (const ex of d.exams || []) {
+      const tr = document.createElement("tr");
+      const rooms = ex.rooms?.length ?? 0;
+      const st = ex.cancelled ? "Cancelled" : ex.published ? "Published (active payload)" : "Draft";
+      tr.innerHTML = `<td>${escapeHtml(ex.targetGrade)}</td><td>${escapeHtml(ex.subject || "—")}</td><td>${escapeHtml(
+        new Date(ex.examStartAt).toLocaleString()
+      )}</td><td>${escapeHtml(new Date(ex.examEndAt).toLocaleString())}</td><td><code>${escapeHtml(ex.modelId)}</code></td><td>${rooms}</td><td>${escapeHtml(
+        st
+      )}</td><td class="schedule-actions"></td>`;
+      const cell = tr.querySelector(".schedule-actions");
+      if (cell && !ex.cancelled) {
+        const act = document.createElement("select");
+        act.innerHTML =
+          "<option value=\"\">Actions…</option><option value=\"activate\">Set as live and publish</option><option value=\"cancel\">Cancel draft</option>";
+        act.addEventListener("change", async () => {
+          const v = act.value;
+          act.value = "";
+          if (!v) return;
+          if (v === "cancel") {
+            if (!confirm("Cancel this scheduled exam draft?")) return;
+            try {
+              await api(`/api/admin/schedule/cancel/${encodeURIComponent(ex.id)}`, { method: "POST", body: JSON.stringify({}) });
+              await refreshState();
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          } else if (v === "activate") {
+            if (!confirm("Apply this schedule to the live exam session and publish? Current session settings will be replaced.")) return;
+            try {
+              await api(`/api/admin/schedule/activate/${encodeURIComponent(ex.id)}`, {
+                method: "POST",
+                body: JSON.stringify({ publish: true }),
+              });
+              await refreshState();
+            } catch (e) {
+              alert(e.message || String(e));
+            }
+          }
+        });
+        cell.appendChild(act);
+      }
+      body.appendChild(tr);
+    }
+    if (!(d.exams || []).length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="8" class="hint">No scheduled rows yet. Use <strong>Add exam…</strong>.</td>`;
+      body.appendChild(tr);
+    }
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="8" class="hint">${escapeHtml(e.message || String(e))}</td></tr>`;
+  }
+}
+
+function bindScheduleUi() {
+  $("#btn-schedule-refresh")?.addEventListener("click", () => void paintScheduleTable());
+  $("#btn-schedule-open-add")?.addEventListener("click", () => {
+    const dlg = document.getElementById("dlg-schedule-add");
+    const g = $("#sched-grade");
+    if (g && stateCache?.grades?.length) {
+      g.innerHTML = "";
+      for (const gr of stateCache.grades) {
+        const o = document.createElement("option");
+        o.value = gr;
+        o.textContent = gr;
+        g.appendChild(o);
+      }
+    }
+    const ms = $("#sched-model");
+    if (ms && stateCache?.teacherModels) {
+      ms.innerHTML = "";
+      for (const m of stateCache.teacherModels) {
+        const o = document.createElement("option");
+        o.value = m.id;
+        o.textContent = `${m.label} (${m.questionCount})`;
+        ms.appendChild(o);
+      }
+    }
+    dlg?.showModal?.();
+  });
+  $("#btn-schedule-add-cancel")?.addEventListener("click", () => document.getElementById("dlg-schedule-add")?.close?.());
+  $("#btn-schedule-add-save")?.addEventListener("click", async () => {
+    const grade = $("#sched-grade")?.value || "";
+    const subject = ($("#sched-subject") && $("#sched-subject").value.trim()) || "";
+    const modelId = $("#sched-model")?.value || "";
+    const start = $("#sched-start")?.value;
+    const end = $("#sched-end")?.value;
+    if (!grade || !modelId || !start || !end) {
+      alert("Grade, model, start, and end are required.");
+      return;
+    }
+    const body = {
+      targetGrade: grade,
+      subject,
+      modelId,
+      examStartAt: new Date(start).toISOString(),
+      examEndAt: new Date(end).toISOString(),
+      lobbyOpensMinutesBefore: Number($("#sched-lobby")?.value) || 10,
+      maxStudentsPerRoom: Number($("#sched-cap")?.value) || 12,
+      monitorsPerRoom: Number($("#sched-monitors")?.value) || 1,
+      randomizeProctors: !!$("#sched-random")?.checked,
+      contactLine: ($("#sched-contact") && $("#sched-contact").value.trim()) || "",
+    };
+    try {
+      await api("/api/admin/schedule/create", { method: "POST", body: JSON.stringify(body) });
+      document.getElementById("dlg-schedule-add")?.close?.();
+      await refreshState();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  });
 }
 
 async function paintProctorTeacherPanel() {
@@ -2734,10 +2930,24 @@ async function paintProctorTeacherPanel() {
       sel.appendChild(o);
     });
     if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+    const upBtn = $("#btn-teacher-upload-q");
+    if (upBtn) upBtn.disabled = m.slotsUsed >= m.slotsMax;
   } catch (e) {
     hint.textContent = e.message || String(e);
   }
   await renderTeacherEssayInbox();
+  try {
+    const s2 = loadSession();
+    const d = await api(`/api/teacher/${encodeURIComponent(s2.userId)}/essay-inbox`);
+    const pending = (d.items || []).filter((it) => it.status === "pending").length;
+    const qBtn = $("#btn-teacher-essay-queue");
+    if (qBtn) {
+      qBtn.disabled = pending === 0;
+      qBtn.textContent = pending ? `Grade essays (queue)… (${pending})` : "Grade essays (queue)…";
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 function bindProctor() {
@@ -2804,6 +3014,38 @@ function bindProctor() {
     if (openProctorDeskInNewWindow()) return;
     await joinProctorDeskFromSession();
   };
+  $("#btn-proctor-live-entry")?.addEventListener("click", async () => {
+    if (openProctorDeskInNewWindow()) return;
+    await joinProctorDeskFromSession();
+  });
+  $("#btn-teacher-essay-queue")?.addEventListener("click", () => void openEssayGradingQueueModal());
+  $("#btn-essay-queue-skip")?.addEventListener("click", () => {
+    essayGradingIndex += 1;
+    renderEssayQueueStep();
+  });
+  $("#btn-essay-queue-done")?.addEventListener("click", async () => {
+    const it = essayGradingQueue[essayGradingIndex];
+    if (!it) return;
+    const raw = Number($("#essay-queue-score")?.value);
+    if (!Number.isFinite(raw)) {
+      alert("Enter a score.");
+      return;
+    }
+    if (!confirm(`Submit this score for the anonymous submission?`)) return;
+    const s = loadSession();
+    try {
+      await api(`/api/teacher/${encodeURIComponent(s.userId)}/essay-grade`, {
+        method: "POST",
+        body: JSON.stringify({ blindId: it.blindId, score: raw }),
+      });
+      essayGradingIndex += 1;
+      renderEssayQueueStep();
+      await renderTeacherEssayInbox();
+      await refreshState();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  });
 
   $("#btn-proctor-broadcast-mic")?.addEventListener("click", () => {
     alert(
@@ -3246,13 +3488,18 @@ function bindStudent() {
       }
       const isLast = step.total > 0 && step.index === step.total - 1;
       const q = step.question;
-      const isEssay = q && (q.type === "essay" || !Array.isArray(q.choices) || q.choices.length < 2);
+      const isEssay = q && q.type === "essay";
+      const isFill = q && q.type === "fill";
       const prog = document.createElement("p");
       prog.className = "student-exam-wire-instruction";
       if (isEssay) {
         prog.innerHTML = isLast
           ? `Final question (${step.index + 1} of ${step.total}) — <strong>written answer</strong>. Type your response, then press <strong>Finish exam</strong>.`
           : `Question ${step.index + 1} of ${step.total} — <strong>written answer</strong>. Press <strong>Submit answer</strong> when ready for the next question.`;
+      } else if (isFill) {
+        prog.innerHTML = isLast
+          ? `Final question (${step.index + 1} of ${step.total}) — <strong>short answer</strong>. Type your response, then press <strong>Finish exam</strong>.`
+          : `Question ${step.index + 1} of ${step.total} — <strong>short answer</strong>. Press <strong>Submit answer</strong> for the next question.`;
       } else {
         prog.innerHTML = isLast
           ? `Final question (${step.index + 1} of ${step.total}). Choose one answer, then press <strong>Finish exam</strong> to end your attempt.`
@@ -3287,6 +3534,20 @@ function bindStudent() {
         cap.textContent = `Maximum length about 20 000 characters. Points: up to ${Number(q.maxPoints) || 10} (teacher grades anonymously).`;
         box.appendChild(cap);
         box.appendChild(essayTa);
+      } else if (isFill) {
+        essayTa = document.createElement("textarea");
+        essayTa.rows = 4;
+        essayTa.className = "student-essay-answer";
+        essayTa.style.width = "100%";
+        essayTa.setAttribute("aria-label", "Your answer");
+        essayTa.addEventListener("input", () => {
+          submitBtn.disabled = !essayTa.value.trim();
+        });
+        const cap = document.createElement("p");
+        cap.className = "hint";
+        cap.textContent = `Short answer (auto-scored when a key is set). Max ${Number(q.maxPoints) || 1} point(s).`;
+        box.appendChild(cap);
+        box.appendChild(essayTa);
       } else {
         q.choices.forEach((ch, ci) => {
           const row = document.createElement("label");
@@ -3310,7 +3571,7 @@ function bindStudent() {
       const submitRow = document.createElement("div");
       submitRow.className = "student-exam-q-actions";
       submitBtn.onclick = async () => {
-        if (isEssay) {
+        if (isEssay || isFill) {
           if (!essayTa || !essayTa.value.trim()) return;
         } else if (selected == null) return;
         if (isLast) {
@@ -3321,7 +3582,9 @@ function bindStudent() {
         try {
           const payload = isEssay
             ? { questionId: q.id, essayText: essayTa.value.trim() }
-            : { questionId: q.id, choiceIndex: selected };
+            : isFill
+              ? { questionId: q.id, fillText: essayTa.value.trim() }
+              : { questionId: q.id, choiceIndex: selected };
           const next = await api(`/api/student/${encodeURIComponent(sid)}/exam-submit`, {
             method: "POST",
             body: JSON.stringify(payload),
@@ -3368,6 +3631,7 @@ function bindStudent() {
 document.addEventListener("DOMContentLoaded", async () => {
   captureConsolePrefillFromUrl();
   bindConnectionPanel();
+  bindScheduleUi();
   probeBackendOnce();
   setInterval(() => probeBackendOnce(), 60000);
 
