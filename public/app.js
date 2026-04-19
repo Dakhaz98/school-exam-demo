@@ -2945,6 +2945,25 @@ function scheduleAddSubjectValue() {
   return String(sel.value || "").trim();
 }
 
+/** Grade picklist for schedule modal: prefer API `grades`, else keys of `studentCountByGrade` with count > 0. */
+function scheduleModalGradeOptions() {
+  const fromGrades = stateCache?.grades;
+  if (Array.isArray(fromGrades) && fromGrades.length) return fromGrades.slice();
+  const counts = stateCache?.studentCountByGrade;
+  if (counts && typeof counts === "object") {
+    const keys = Object.keys(counts).filter((k) => Number(counts[k]) > 0);
+    if (keys.length) return keys.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+  return [];
+}
+
+function scheduleRosterEmptyHint() {
+  const n = Number(stateCache?.studentsCount) || 0;
+  if (n > 0)
+    return "Students are on the server but no Grade values were found. Re-upload the roster with a Grade column, or Admin → Quick demo data → Load demo roster.";
+  return "No student roster on this server yet. Open the Admin tab → Quick demo data → click Load demo roster, then open Add exam again (same site URL).";
+}
+
 function scheduleAddRefreshPreview() {
   const grade = $("#sched-grade")?.value || "";
   const sumEl = $("#sched-grade-summary");
@@ -2952,8 +2971,9 @@ function scheduleAddRefreshPreview() {
   const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
   const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
   if (sumEl) {
-    if (!grade) sumEl.textContent = "";
-    else if (!stateCache?.studentCountByGrade || stateCache.studentCountByGrade[grade] == null)
+    if (!grade) {
+      sumEl.textContent = scheduleModalGradeOptions().length ? "" : scheduleRosterEmptyHint();
+    } else if (!stateCache?.studentCountByGrade || stateCache.studentCountByGrade[grade] == null)
       sumEl.textContent = "Student count unavailable — refresh roster.";
     else sumEl.textContent = `${n} student${n === 1 ? "" : "s"} in ${grade}.`;
   }
@@ -3082,14 +3102,15 @@ function bindScheduleUi() {
   $("#btn-schedule-open-add")?.addEventListener("click", async () => {
     try {
       await refreshState();
-    } catch {
-      /* still open dialog */
+    } catch (e) {
+      alert(e?.message || String(e) || "Could not load server state. Check connection and try again.");
     }
     const dlg = document.getElementById("dlg-schedule-add");
     const g = $("#sched-grade");
-    if (g && stateCache?.grades?.length) {
+    const gradeOpts = scheduleModalGradeOptions();
+    if (g && gradeOpts.length) {
       g.innerHTML = "";
-      for (const gr of stateCache.grades) {
+      for (const gr of gradeOpts) {
         const o = document.createElement("option");
         o.value = gr;
         o.textContent = gr;
@@ -3099,7 +3120,7 @@ function bindScheduleUi() {
       g.innerHTML = "";
       const o = document.createElement("option");
       o.value = "";
-      o.textContent = "Upload student roster first";
+      o.textContent = "No grades — load roster first";
       g.appendChild(o);
     }
     const ms = $("#sched-model");
