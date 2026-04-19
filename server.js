@@ -14,7 +14,10 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-34";
+const SERVER_BUILD_ID = "exam-demo-build-35";
+
+/** Always offered in schedule “Subject” picklists (merged with subjects from uploaded models). */
+const SCHEDULE_SUBJECT_DEFAULTS = ["Science", "Mathematics", "English"];
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
@@ -1340,6 +1343,7 @@ function publicSnapshot() {
       const mg = String(m.modelGrade || "").trim();
       if (!mg || normGrade(mg) === normGrade(g)) set.add(subj);
     }
+    for (const d of SCHEDULE_SUBJECT_DEFAULTS) set.add(d);
     subjectsByGrade[g] = [...set].sort((a, b) => a.localeCompare(b));
   }
 

@@ -3040,7 +3040,7 @@ function scheduleAddFillSubjectSelect(grade) {
   const subs = (stateCache?.subjectsByGrade && stateCache.subjectsByGrade[grade]) || [];
   const ph = document.createElement("option");
   ph.value = "";
-  ph.textContent = subs.length ? "Choose subject…" : "No subject tags on models for this grade — use Other";
+  ph.textContent = "Choose subject…";
   sel.appendChild(ph);
   subs.forEach((s) => {
     const o = document.createElement("option");
