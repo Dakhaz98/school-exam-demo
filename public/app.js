@@ -3091,6 +3091,7 @@ function scheduleAddRenderRoomsAndProctors() {
       const sel = document.createElement("select");
       sel.className = "sched-proc-sel sched-proc-sel--compact";
       sel.dataset.room = rid;
+      sel.dataset.roomIndex = String(i);
       sel.dataset.slot = String(m);
       sel.setAttribute(
         "aria-label",
@@ -3107,6 +3108,60 @@ function scheduleAddRenderRoomsAndProctors() {
     }
     wrap.appendChild(row);
   }
+
+  scheduleAddWireProctorSelectUniqueness(wrap);
+}
+
+/** Document order: room index ascending, then slot. */
+function scheduleAddOrderedProctorSelects(container) {
+  return [...container.querySelectorAll("select.sched-proc-sel")].sort((a, b) => {
+    const ra = Number(a.dataset.roomIndex);
+    const rb = Number(b.dataset.roomIndex);
+    if (ra !== rb) return ra - rb;
+    return Number(a.dataset.slot) - Number(b.dataset.slot);
+  });
+}
+
+/** Each teacher at most one slot across all rooms; dropdowns hide already-picked staff. */
+function scheduleAddSyncProctorDropdownsUnique() {
+  const wrap = $("#sched-manual-proctors");
+  if (!wrap) return;
+  const grade = $("#sched-grade")?.value || "";
+  const pool = teachersForGradeUi(grade);
+  const selects = scheduleAddOrderedProctorSelects(wrap);
+  const noneLabel = pool.length ? "Pick…" : "—";
+
+  for (const sel of selects) {
+    const taken = new Set();
+    for (const other of selects) {
+      if (other === sel) continue;
+      const ov = String(other.value || "").trim();
+      if (ov) taken.add(ov);
+    }
+    const saved = String(sel.value || "").trim();
+    const finalVal = saved && taken.has(saved) ? "" : saved;
+
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = noneLabel;
+    sel.appendChild(none);
+    for (const t of pool) {
+      if (taken.has(t.staffId)) continue;
+      const o = document.createElement("option");
+      o.value = t.staffId;
+      o.textContent = t.fullName || t.staffId;
+      sel.appendChild(o);
+    }
+    sel.value = finalVal;
+  }
+}
+
+function scheduleAddWireProctorSelectUniqueness(wrap) {
+  wrap.querySelectorAll("select.sched-proc-sel").forEach((sel) => {
+    sel.addEventListener("change", () => scheduleAddSyncProctorDropdownsUnique());
+  });
+  scheduleAddSyncProctorDropdownsUnique();
 }
 
 function scheduleAddFillProctorsAuto() {
@@ -3119,18 +3174,27 @@ function scheduleAddFillProctorsAuto() {
     alert("No teachers in the roster for this grade (check Supervised Grade).");
     return;
   }
+  const need = roomCount * monitors;
+  const shuffled = [...poolIds];
+  for (let a = shuffled.length - 1; a > 0; a--) {
+    const j = Math.floor(Math.random() * (a + 1));
+    [shuffled[a], shuffled[j]] = [shuffled[j], shuffled[a]];
+  }
+  const picked = [];
+  if (shuffled.length >= need) {
+    for (let k = 0; k < need; k++) picked.push(shuffled[k]);
+  } else {
+    for (let k = 0; k < need; k++) picked.push(poolIds[k % poolIds.length]);
+  }
+  let idx = 0;
   for (let i = 1; i <= roomCount; i++) {
     const rid = `room-${i}`;
-    const shuffled = [...poolIds];
-    for (let a = shuffled.length - 1; a > 0; a--) {
-      const j = Math.floor(Math.random() * (a + 1));
-      [shuffled[a], shuffled[j]] = [shuffled[j], shuffled[a]];
-    }
     for (let m = 0; m < monitors; m++) {
       const sel = document.querySelector(`#sched-manual-proctors select.sched-proc-sel[data-room="${rid}"][data-slot="${m}"]`);
-      if (sel) sel.value = shuffled[m % shuffled.length] || "";
+      if (sel) sel.value = picked[idx++] || "";
     }
   }
+  scheduleAddSyncProctorDropdownsUnique();
 }
 
 function scheduleAddCollectManualProctors(roomCount, monitors) {

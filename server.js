@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-32";
+const SERVER_BUILD_ID = "exam-demo-build-33";
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
@@ -1567,6 +1567,18 @@ app.post("/api/admin/schedule/create", (req, res) => {
       const raw = body.manualProctors[r.id] ?? body.manualProctors[r.label];
       const arr = Array.isArray(raw) ? raw.map((x) => String(x || "").trim()).filter(Boolean) : [];
       r.proctorStaffIds = arr.slice(0, monitors).filter((id) => poolAllIds.has(id));
+    }
+    const seenStaff = new Set();
+    for (const r of rooms) {
+      for (const id of r.proctorStaffIds || []) {
+        if (seenStaff.has(id)) {
+          return res.status(400).json({
+            ok: false,
+            error: "Each teacher may only be assigned once across all rooms in manual proctor mode.",
+          });
+        }
+        seenStaff.add(id);
+      }
     }
   } else if (useRandom) {
     assignProctorsRandom(rooms, pool);
