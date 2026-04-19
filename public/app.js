@@ -2901,14 +2901,115 @@ function teachersForGradeUi(grade) {
   });
 }
 
-function scheduleAddProctorPool(grade, modelId) {
-  let pool = teachersForGradeUi(grade);
+/** Staff IDs excluded from proctor duty: model author + rows in #sched-exclude-teachers-rows. */
+function scheduleAddExcludedProctorStaffIds(modelId) {
+  const set = new Set();
   const m = (stateCache?.teacherModels || []).find((x) => x.id === modelId);
+  if (m?.uploadedByStaffId) set.add(m.uploadedByStaffId);
+  document.querySelectorAll("#sched-exclude-teachers-rows .sched-exclude-sel").forEach((sel) => {
+    const v = String(sel.value || "").trim();
+    if (v) set.add(v);
+  });
+  return set;
+}
+
+function scheduleAddCollectExcludeProctorStaffIdsForApi() {
+  const out = [];
+  document.querySelectorAll("#sched-exclude-teachers-rows .sched-exclude-sel").forEach((sel) => {
+    const v = String(sel.value || "").trim();
+    if (v) out.push(v);
+  });
+  return [...new Set(out)];
+}
+
+function scheduleAddProctorEligiblePool(grade, modelId) {
+  const all = teachersForGradeUi(grade);
+  const ex = scheduleAddExcludedProctorStaffIds(modelId);
+  const eligible = all.filter((t) => !ex.has(t.staffId));
+  return eligible.length ? eligible : all;
+}
+
+function scheduleAddProctorPool(grade, modelId) {
+  return scheduleAddProctorEligiblePool(grade, modelId);
+}
+
+function scheduleAddRefreshProctorExcludeHint() {
+  const el = $("#sched-exclude-model-hint");
+  if (!el) return;
+  const m = (stateCache?.teacherModels || []).find((x) => x.id === ($("#sched-model")?.value || ""));
   if (m?.uploadedByStaffId) {
-    const rest = pool.filter((t) => t.staffId !== m.uploadedByStaffId);
-    if (rest.length) pool = rest;
+    const roster = stateCache?.teachersRoster || [];
+    const t = roster.find((x) => x.staffId === m.uploadedByStaffId);
+    const name = t?.fullName || m.uploadedByStaffId;
+    el.textContent = `The selected model’s author (${name}) is always excluded from proctoring when possible.`;
+  } else {
+    el.textContent = "";
   }
-  return pool;
+}
+
+function scheduleAddFillOneExcludeSelect(sel) {
+  const grade = $("#sched-grade")?.value || "";
+  const modelId = $("#sched-model")?.value || "";
+  const all = teachersForGradeUi(grade);
+  const m = (stateCache?.teacherModels || []).find((x) => x.id === modelId);
+  const uploaded = m?.uploadedByStaffId || "";
+  const taken = new Set();
+  document.querySelectorAll("#sched-exclude-teachers-rows .sched-exclude-sel").forEach((s) => {
+    if (s === sel) return;
+    const v = String(s.value || "").trim();
+    if (v) taken.add(v);
+  });
+  const keep = String(sel.value || "").trim();
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "Choose teacher to exclude…";
+  sel.appendChild(none);
+  for (const t of all) {
+    if (t.staffId === uploaded) continue;
+    if (taken.has(t.staffId) && t.staffId !== keep) continue;
+    const o = document.createElement("option");
+    o.value = t.staffId;
+    o.textContent = t.fullName || t.staffId;
+    sel.appendChild(o);
+  }
+  if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+
+function scheduleAddRefreshAllExcludeSelects() {
+  document.querySelectorAll("#sched-exclude-teachers-rows .sched-exclude-sel").forEach((s) => scheduleAddFillOneExcludeSelect(s));
+}
+
+function schedExcludeTeacherAddRow() {
+  const rows = $("#sched-exclude-teachers-rows");
+  if (!rows) return;
+  if (!$("#sched-grade")?.value) return;
+  const row = document.createElement("div");
+  row.className = "sched-exclude-row";
+  const sel = document.createElement("select");
+  sel.className = "sched-exclude-sel";
+  scheduleAddFillOneExcludeSelect(sel);
+  sel.addEventListener("change", () => scheduleAddFullUiRefresh());
+  const rm = document.createElement("button");
+  rm.type = "button";
+  rm.className = "secondary sched-exclude-remove";
+  rm.setAttribute("aria-label", "Remove");
+  rm.textContent = "×";
+  rm.addEventListener("click", () => {
+    row.remove();
+    scheduleAddFullUiRefresh();
+  });
+  row.appendChild(sel);
+  row.appendChild(rm);
+  rows.appendChild(row);
+  scheduleAddFullUiRefresh();
+}
+
+function scheduleAddFullUiRefresh() {
+  scheduleAddRefreshProctorExcludeHint();
+  scheduleAddRefreshAllExcludeSelects();
+  scheduleAddRefreshPreview();
+  scheduleAddRenderRoomsAndProctors();
 }
 
 function scheduleAddResetSubjectSelect() {
@@ -3065,7 +3166,9 @@ function scheduleAddRenderRoomsAndProctors() {
     return;
   }
 
-  const pool = teachersForGradeUi(grade);
+  const prevSelections = scheduleAddCaptureManualProctorValues();
+  const modelId = $("#sched-model")?.value || "";
+  const pool = scheduleAddProctorEligiblePool(grade, modelId);
   const none = document.createElement("option");
   none.value = "";
   none.textContent = pool.length ? "Pick…" : "—";
@@ -3109,7 +3212,17 @@ function scheduleAddRenderRoomsAndProctors() {
     wrap.appendChild(row);
   }
 
-  scheduleAddWireProctorSelectUniqueness(wrap);
+  scheduleAddWireProctorSelectUniqueness(wrap, prevSelections);
+}
+
+function scheduleAddCaptureManualProctorValues() {
+  const wrap = $("#sched-manual-proctors");
+  if (!wrap || !wrap.querySelector(".sched-proc-sel")) return [];
+  return scheduleAddOrderedProctorSelects(wrap).map((s) => ({
+    room: s.dataset.room,
+    slot: s.dataset.slot,
+    value: String(s.value || "").trim(),
+  }));
 }
 
 /** Document order: room index ascending, then slot. */
@@ -3127,7 +3240,8 @@ function scheduleAddSyncProctorDropdownsUnique() {
   const wrap = $("#sched-manual-proctors");
   if (!wrap) return;
   const grade = $("#sched-grade")?.value || "";
-  const pool = teachersForGradeUi(grade);
+  const modelId = $("#sched-model")?.value || "";
+  const pool = scheduleAddProctorEligiblePool(grade, modelId);
   const selects = scheduleAddOrderedProctorSelects(wrap);
   const noneLabel = pool.length ? "Pick…" : "—";
 
@@ -3157,10 +3271,16 @@ function scheduleAddSyncProctorDropdownsUnique() {
   }
 }
 
-function scheduleAddWireProctorSelectUniqueness(wrap) {
+function scheduleAddWireProctorSelectUniqueness(wrap, prevSelections) {
   wrap.querySelectorAll("select.sched-proc-sel").forEach((sel) => {
     sel.addEventListener("change", () => scheduleAddSyncProctorDropdownsUnique());
   });
+  scheduleAddSyncProctorDropdownsUnique();
+  for (const p of prevSelections || []) {
+    if (!p.value) continue;
+    const sel = wrap.querySelector(`select.sched-proc-sel[data-room="${p.room}"][data-slot="${p.slot}"]`);
+    if (sel && [...sel.options].some((o) => o.value === p.value)) sel.value = p.value;
+  }
   scheduleAddSyncProctorDropdownsUnique();
 }
 
@@ -3216,8 +3336,7 @@ function bindScheduleUi() {
   $("#btn-schedule-refresh")?.addEventListener("click", () => void paintScheduleTable());
 
   const refreshScheduleAdd = () => {
-    scheduleAddRefreshPreview();
-    scheduleAddRenderRoomsAndProctors();
+    scheduleAddFullUiRefresh();
   };
 
   $("#btn-schedule-open-add")?.addEventListener("click", async () => {
@@ -3227,6 +3346,8 @@ function bindScheduleUi() {
       alert(e?.message || String(e) || "Could not load server state. Check connection and try again.");
     }
     const dlg = document.getElementById("dlg-schedule-add");
+    const exRows = $("#sched-exclude-teachers-rows");
+    if (exRows) exRows.innerHTML = "";
     const g = $("#sched-grade");
     const gradeOpts = scheduleModalGradeOptions();
     if (g && gradeOpts.length) {
@@ -3264,6 +3385,8 @@ function bindScheduleUi() {
 
   $("#sched-grade")?.addEventListener("change", () => {
     const grade = $("#sched-grade")?.value || "";
+    const exRows = $("#sched-exclude-teachers-rows");
+    if (exRows) exRows.innerHTML = "";
     if (grade) scheduleAddFillSubjectSelect(grade);
     else scheduleAddResetSubjectSelect();
     const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
@@ -3309,6 +3432,8 @@ function bindScheduleUi() {
   });
 
   $("#btn-sched-assign-proctors")?.addEventListener("click", () => scheduleAddFillProctorsAuto());
+
+  $("#btn-sched-exclude-teacher-add")?.addEventListener("click", () => schedExcludeTeacherAddRow());
 
   $("#btn-schedule-add-cancel")?.addEventListener("click", () => document.getElementById("dlg-schedule-add")?.close?.());
   $("#btn-schedule-add-save")?.addEventListener("click", async () => {
@@ -3357,6 +3482,7 @@ function bindScheduleUi() {
       roomCount,
       monitorsPerRoom,
       randomizeProctors,
+      excludeProctorStaffIds: scheduleAddCollectExcludeProctorStaffIdsForApi(),
       contactLine: ($("#sched-contact") && $("#sched-contact").value.trim()) || "",
     };
     if (!randomizeProctors) {

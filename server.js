@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-33";
+const SERVER_BUILD_ID = "exam-demo-build-34";
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
@@ -1554,23 +1554,37 @@ app.post("/api/admin/schedule/create", (req, res) => {
   for (const r of rooms) {
     r.proctorsRequired = monitors;
   }
-  const subjectTeachers = new Set();
-  if (model.uploadedByStaffId) subjectTeachers.add(model.uploadedByStaffId);
-  let pool = teachersForGrade(state.teachers, targetGrade).filter((t) => !subjectTeachers.has(t.staffId));
-  if (!pool.length) pool = teachersForGrade(state.teachers, targetGrade);
+  const excludeProctors = new Set();
+  if (model.uploadedByStaffId) excludeProctors.add(model.uploadedByStaffId);
   const poolAll = teachersForGrade(state.teachers, targetGrade);
   const poolAllIds = new Set(poolAll.map((t) => t.staffId));
+  if (Array.isArray(body.excludeProctorStaffIds)) {
+    for (const x of body.excludeProctorStaffIds) {
+      const id = String(x || "").trim();
+      if (id && poolAllIds.has(id)) excludeProctors.add(id);
+    }
+  }
+  let pool = teachersForGrade(state.teachers, targetGrade).filter((t) => !excludeProctors.has(t.staffId));
+  if (!pool.length) pool = teachersForGrade(state.teachers, targetGrade);
   const useRandom = body.randomizeProctors !== false;
 
   if (!useRandom && body.manualProctors && typeof body.manualProctors === "object") {
     for (const r of rooms) {
       const raw = body.manualProctors[r.id] ?? body.manualProctors[r.label];
       const arr = Array.isArray(raw) ? raw.map((x) => String(x || "").trim()).filter(Boolean) : [];
-      r.proctorStaffIds = arr.slice(0, monitors).filter((id) => poolAllIds.has(id));
+      r.proctorStaffIds = arr
+        .slice(0, monitors)
+        .filter((id) => poolAllIds.has(id) && !excludeProctors.has(id));
     }
     const seenStaff = new Set();
     for (const r of rooms) {
       for (const id of r.proctorStaffIds || []) {
+        if (excludeProctors.has(id)) {
+          return res.status(400).json({
+            ok: false,
+            error: "A selected proctor is excluded (subject teacher or model author). Adjust exclusions or proctor picks.",
+          });
+        }
         if (seenStaff.has(id)) {
           return res.status(400).json({
             ok: false,
@@ -1616,6 +1630,7 @@ app.post("/api/admin/schedule/create", (req, res) => {
     lobbyOpensMinutesBefore: Number(body.lobbyOpensMinutesBefore) || 10,
     maxStudentsPerRoom: maxPer,
     monitorsPerRoom: monitors,
+    excludeProctorStaffIds: [...excludeProctors],
     rooms,
     published: false,
     cancelled: false,

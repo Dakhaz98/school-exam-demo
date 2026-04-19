@@ -400,6 +400,12 @@
               </div>
               <p id="sched-rooms-preview" class="hint sched-rooms-preview" aria-live="polite"></p>
               <div class="sched-proctor-assign-block">
+                <div class="sched-exclude-teachers-panel">
+                  <div class="hint sched-exclude-title">Subject teachers to exclude from proctoring (optional)</div>
+                  <p id="sched-exclude-model-hint" class="hint sched-exclude-model-hint" aria-live="polite"></p>
+                  <div id="sched-exclude-teachers-rows"></div>
+                  <button type="button" class="secondary sched-exclude-add" id="btn-sched-exclude-teacher-add">+ Add teacher to exclude</button>
+                </div>
                 <label> Monitors per room <select id="sched-monitors"><option value="1">1</option><option value="2">2</option></select> </label>
                 <label class="honesty-row">
                   <input type="checkbox" id="sched-random" checked />
@@ -917,6 +923,6 @@
     </dialog>
 
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="/app.js?v=20260416h"></script>
+    <script src="/app.js?v=20260416i"></script>
   </body>
 </html>
