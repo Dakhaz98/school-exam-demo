@@ -3051,13 +3051,13 @@ function scheduleAddRenderRoomsAndProctors() {
     if (ro) {
       ro.classList.remove("hidden");
       const title = document.createElement("div");
-      title.textContent = "Rooms for this exam:";
+      title.textContent = "Rooms (random proctors on save):";
       ro.appendChild(title);
       const ul = document.createElement("ul");
       ul.className = "sched-room-readonly-list";
       sizes.forEach((sz, i) => {
         const li = document.createElement("li");
-        li.textContent = `Room ${i + 1}: ${sz} student${sz === 1 ? "" : "s"} — proctors assigned randomly when you save.`;
+        li.textContent = `${i + 1}. ${sz} student${sz === 1 ? "" : "s"}`;
         ul.appendChild(li);
       });
       ro.appendChild(ul);
@@ -3068,25 +3068,34 @@ function scheduleAddRenderRoomsAndProctors() {
   const pool = teachersForGradeUi(grade);
   const none = document.createElement("option");
   none.value = "";
-  none.textContent = pool.length ? "Choose teacher…" : "No teachers for this grade in roster";
+  none.textContent = pool.length ? "Pick…" : "—";
 
   wrap.innerHTML = "";
   for (let i = 0; i < roomCount; i++) {
     const rid = `room-${i + 1}`;
-    const label = `Room ${i + 1}`;
     const sz = sizes[i] ?? 0;
     const row = document.createElement("div");
-    row.className = "sched-room-proc-row";
-    const head = document.createElement("span");
-    head.innerHTML = `<strong>${escapeHtml(label)}</strong> <span class="hint">(${sz} students)</span>`;
-    row.appendChild(head);
+    row.className =
+      monitors === 2
+        ? "sched-room-proc-row sched-room-proc-row--compact sched-room-proc-row--dual"
+        : "sched-room-proc-row sched-room-proc-row--compact";
+    const idx = document.createElement("span");
+    idx.className = "sched-room-num";
+    idx.textContent = String(i + 1);
+    const meta = document.createElement("span");
+    meta.className = "sched-room-meta hint";
+    meta.textContent = `${sz} st`;
+    row.appendChild(idx);
+    row.appendChild(meta);
     for (let m = 0; m < monitors; m++) {
-      const lab = document.createElement("label");
-      lab.textContent = monitors === 1 ? "Teacher" : m === 0 ? "Teacher 1" : "Teacher 2";
       const sel = document.createElement("select");
-      sel.className = "sched-proc-sel";
+      sel.className = "sched-proc-sel sched-proc-sel--compact";
       sel.dataset.room = rid;
       sel.dataset.slot = String(m);
+      sel.setAttribute(
+        "aria-label",
+        monitors === 1 ? `Room ${i + 1} teacher` : `Room ${i + 1} teacher ${m + 1}`,
+      );
       sel.appendChild(none.cloneNode(true));
       pool.forEach((t) => {
         const o = document.createElement("option");
@@ -3094,8 +3103,7 @@ function scheduleAddRenderRoomsAndProctors() {
         o.textContent = t.fullName || t.staffId;
         sel.appendChild(o);
       });
-      lab.appendChild(sel);
-      row.appendChild(lab);
+      row.appendChild(sel);
     }
     wrap.appendChild(row);
   }

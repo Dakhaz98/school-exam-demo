@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-30";
+const SERVER_BUILD_ID = "exam-demo-build-31";
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
