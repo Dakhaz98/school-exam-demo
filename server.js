@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-27";
+const SERVER_BUILD_ID = "exam-demo-build-28";
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
@@ -2027,7 +2027,75 @@ app.delete("/api/admin/question-models/:id", (req, res) => {
   res.json({ ok: true, state: publicSnapshot() });
 });
 
-/** Demo roster: 70 students in Grade 4, 12 staff supervising Grade 4. DMES: {"variant":"dmes","dmesStudentCount":1-12} or ?count= . Trio: {"variant":"trio"}. */
+const DEMO_ENGLISH_FIRST = [
+  "James",
+  "Sophia",
+  "Ethan",
+  "Olivia",
+  "Noah",
+  "Ava",
+  "Liam",
+  "Mia",
+  "Mason",
+  "Isabella",
+  "Lucas",
+  "Charlotte",
+  "Henry",
+  "Amelia",
+  "Alexander",
+  "Harper",
+  "Benjamin",
+  "Evelyn",
+  "Daniel",
+  "Abigail",
+  "Jackson",
+  "Emily",
+  "Sebastian",
+  "Elizabeth",
+  "Owen",
+  "Sofia",
+  "Carter",
+  "Grace",
+  "Jayden",
+  "Lily",
+];
+
+const DEMO_ENGLISH_LAST = [
+  "Anderson",
+  "Bennett",
+  "Campbell",
+  "Davison",
+  "Edwards",
+  "Foster",
+  "Grayson",
+  "Harrison",
+  "Ingram",
+  "Johnson",
+  "Kensington",
+  "Lawson",
+  "Mitchell",
+  "Norton",
+  "Patterson",
+  "Richardson",
+  "Sullivan",
+  "Thompson",
+  "Underwood",
+  "Vaughan",
+  "Whitaker",
+  "Yates",
+  "Brooks",
+  "Coleman",
+];
+
+/** Deterministic English-style names for seeded demo rows only (synthetic data). */
+function demoRosterEnglishName(seed) {
+  const s = Number(seed) || 0;
+  const f = DEMO_ENGLISH_FIRST[s % DEMO_ENGLISH_FIRST.length];
+  const l = DEMO_ENGLISH_LAST[(s * 17 + Math.floor(s / 5)) % DEMO_ENGLISH_LAST.length];
+  return `${f} ${l}`;
+}
+
+/** Default demo: ~32 students Grade 4 + ~33 Grade 5 (English names), 8+8 teachers, five rooms / two proctors for current grade. DMES: {"variant":"dmes",...}. Trio: {"variant":"trio"}. */
 app.post("/api/admin/seed-demo-roster", (req, res) => {
   const b = req.body || {};
   const qv = String(req.query?.variant || req.query?.mode || "").toLowerCase();
@@ -2049,25 +2117,47 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
     return res.json({ ok: true, scenario, state: publicSnapshot() });
   }
   state.examAccessKey = "";
+  const g4Count = 32;
+  const g5Count = 33;
   const students = [];
-  for (let i = 1; i <= 70; i++) {
-    const id = `S${String(i).padStart(4, "0")}`;
+  for (let i = 1; i <= g4Count; i++) {
+    const id = `G4-${String(i).padStart(3, "0")}`;
     students.push({
       studentId: id,
-      fullName: `Student ${i}`,
-      email: `${id.toLowerCase()}@school.demo`,
+      fullName: demoRosterEnglishName(i - 1),
+      email: `g4.student${String(i).padStart(3, "0")}@school.demo`,
       stage: "Primary",
       grade: "Grade 4",
     });
   }
+  const g5NameOffset = g4Count * 3;
+  for (let i = 1; i <= g5Count; i++) {
+    const id = `G5-${String(i).padStart(3, "0")}`;
+    students.push({
+      studentId: id,
+      fullName: demoRosterEnglishName(g5NameOffset + i - 1),
+      email: `g5.student${String(i).padStart(3, "0")}@school.demo`,
+      stage: "Primary",
+      grade: "Grade 5",
+    });
+  }
   const teachers = [];
-  for (let i = 1; i <= 12; i++) {
-    const id = `T${String(i).padStart(3, "0")}`;
+  for (let i = 1; i <= 8; i++) {
+    const id = `T4-${String(i).padStart(2, "0")}`;
     teachers.push({
       staffId: id,
-      fullName: `Teacher ${i}`,
-      email: `${id.toLowerCase()}@school.demo`,
+      fullName: demoRosterEnglishName(400 + i),
+      email: `t4.proctor${String(i).padStart(2, "0")}@school.demo`,
       supervisedGrade: "Grade 4",
+    });
+  }
+  for (let i = 1; i <= 8; i++) {
+    const id = `T5-${String(i).padStart(2, "0")}`;
+    teachers.push({
+      staffId: id,
+      fullName: demoRosterEnglishName(420 + i),
+      email: `t5.proctor${String(i).padStart(2, "0")}@school.demo`,
+      supervisedGrade: "Grade 5",
     });
   }
   state.students = students;
@@ -2081,7 +2171,11 @@ app.post("/api/admin/seed-demo-roster", (req, res) => {
   syncExamTargetGradeFromStudents();
   resetStudentExamRuntimeFlags();
   resetExamAdmissionState();
-  appendAudit("seed_demo_roster", "Bulk Grade 4 demo roster", { actorRole: "admin", actorId: "admin" });
+  appendAudit(
+    "seed_demo_roster",
+    `Demo roster: ${g4Count} Grade 4 + ${g5Count} Grade 5 students (English names), 16 teachers`,
+    { actorRole: "admin", actorId: "admin" },
+  );
   broadcastState();
   res.json({ ok: true, state: publicSnapshot() });
 });
