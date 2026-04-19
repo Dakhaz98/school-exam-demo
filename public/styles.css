@@ -1564,6 +1564,27 @@ dialog.exam-dialog::backdrop {
   padding-bottom: 0.15rem;
 }
 
+#form-schedule-add .sched-cap-room-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 1.25rem;
+  margin: 0.15rem 0 0.35rem;
+}
+
+#form-schedule-add .sched-inline-num {
+  flex: 0 0 auto;
+}
+
+#form-schedule-add .sched-inline-num input[type="number"] {
+  display: block;
+  width: 4.75rem;
+  max-width: 6rem;
+  margin-top: 0.2rem;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.9rem;
+}
+
 #form-schedule-add .sched-rooms-preview {
   margin: 0 0 0.65rem;
 }

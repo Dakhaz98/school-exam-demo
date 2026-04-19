@@ -388,11 +388,16 @@
                 </label>
                 <div id="sched-grade-summary" class="hint sched-grade-summary" aria-live="polite"></div>
               </div>
-              <label> Max students per room <input type="number" id="sched-cap" min="1" max="30" value="12" /> </label>
-              <label>
-                Number of exam rooms
-                <input type="number" id="sched-room-count" min="1" value="1" />
-              </label>
+              <div class="sched-cap-room-row">
+                <label class="sched-inline-num">
+                  Max students per room
+                  <input type="number" id="sched-cap" min="1" max="30" value="12" />
+                </label>
+                <label class="sched-inline-num">
+                  Number of exam rooms
+                  <input type="number" id="sched-room-count" min="1" value="1" />
+                </label>
+              </div>
               <p id="sched-rooms-preview" class="hint sched-rooms-preview" aria-live="polite"></p>
               <div class="sched-proctor-assign-block">
                 <label> Monitors per room <select id="sched-monitors"><option value="1">1</option><option value="2">2</option></select> </label>
@@ -912,6 +917,6 @@
     </dialog>
 
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="/app.js?v=20260416f"></script>
+    <script src="/app.js?v=20260416g"></script>
   </body>
 </html>
