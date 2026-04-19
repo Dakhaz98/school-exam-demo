@@ -14,7 +14,7 @@ const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3780;
 /** Bumped when API shape changes; client checks /api/health */
-const SERVER_BUILD_ID = "exam-demo-build-29";
+const SERVER_BUILD_ID = "exam-demo-build-30";
 
 /** Proctor may enter the live monitoring room this many minutes before scheduled exam start (policy). */
 const PROCTOR_JOIN_LEAD_MINUTES = 20;
@@ -1529,7 +1529,28 @@ app.post("/api/admin/schedule/create", (req, res) => {
   if (!inGrade.length) {
     return res.status(400).json({ ok: false, error: "No students in that grade in the roster. Upload students first." });
   }
-  const rooms = splitStudentsIntoRoomsWithMaxCap(inGrade, maxPer);
+  const nStudents = inGrade.length;
+  const requestedRooms = Math.floor(Number(body.roomCount));
+  let rooms;
+  if (Number.isFinite(requestedRooms) && requestedRooms >= 1) {
+    if (requestedRooms > nStudents) {
+      return res.status(400).json({
+        ok: false,
+        error: `Room count cannot exceed the number of students in this grade (${nStudents}).`,
+      });
+    }
+    rooms = splitStudentsIntoRooms(inGrade, requestedRooms);
+    for (const r of rooms) {
+      if (r.studentIds.length > maxPer) {
+        return res.status(400).json({
+          ok: false,
+          error: `With ${requestedRooms} rooms, at least one room would have more than ${maxPer} students. Add more rooms or raise "max students per room".`,
+        });
+      }
+    }
+  } else {
+    rooms = splitStudentsIntoRoomsWithMaxCap(inGrade, maxPer);
+  }
   for (const r of rooms) {
     r.proctorsRequired = monitors;
   }

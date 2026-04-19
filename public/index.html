@@ -388,6 +388,11 @@
                 </label>
                 <div id="sched-grade-summary" class="hint sched-grade-summary" aria-live="polite"></div>
               </div>
+              <label> Max students per room <input type="number" id="sched-cap" min="1" max="30" value="12" /> </label>
+              <label>
+                Number of exam rooms
+                <input type="number" id="sched-room-count" min="1" value="1" />
+              </label>
               <p id="sched-rooms-preview" class="hint sched-rooms-preview" aria-live="polite"></p>
               <label>
                 Subject
@@ -398,13 +403,13 @@
               <label> Exam start <input type="datetime-local" id="sched-start" required /> </label>
               <label> Exam end <input type="datetime-local" id="sched-end" required /> </label>
               <label> Lobby opens (minutes before start) <input type="number" id="sched-lobby" min="0" value="10" /> </label>
-              <label> Max students per room <input type="number" id="sched-cap" min="1" max="30" value="12" /> </label>
               <label> Monitors per room <select id="sched-monitors"><option value="1">1</option><option value="2">2</option></select> </label>
               <label class="honesty-row">
                 <input type="checkbox" id="sched-random" checked />
-                <span>Random proctor assignment</span>
+                <span>Random proctor assignment (across the rooms below)</span>
               </label>
               <button type="button" class="secondary hidden" id="btn-sched-assign-proctors">Assign proctors automatically</button>
+              <div id="sched-rooms-readonly" class="hint sched-rooms-readonly hidden" aria-live="polite"></div>
               <div id="sched-manual-proctors" class="sched-manual-proctors"></div>
               <label> Contact line for students (optional) <input type="text" id="sched-contact" placeholder="e.g. exams@school.edu" style="width: 100%" /> </label>
               <div class="row" style="margin-top: 0.75rem; justify-content: flex-end; gap: 0.5rem">
@@ -905,6 +910,6 @@
     </dialog>
 
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js" crossorigin="anonymous"></script>
-    <script src="/app.js?v=20260416d"></script>
+    <script src="/app.js?v=20260416e"></script>
   </body>
 </html>

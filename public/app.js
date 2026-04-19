@@ -2870,6 +2870,29 @@ function previewRoomsSplit(studentCount, maxPerRoom) {
   return { roomCount, sizes, maxPer: cap };
 }
 
+/** Room layout for schedule modal: uses #sched-room-count when valid, else auto ceil(n/cap). */
+function scheduleAddRoomLayout() {
+  const grade = $("#sched-grade")?.value || "";
+  const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+  const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+  if (n <= 0) return { roomCount: 0, sizes: [], cap, overCap: false, autoMinRooms: 1 };
+  const autoMinRooms = Math.ceil(n / cap);
+  const raw = Math.floor(Number($("#sched-room-count")?.value));
+  if (!Number.isFinite(raw) || raw < 1) {
+    return { ...previewRoomsSplit(n, cap), cap, overCap: false, autoMinRooms };
+  }
+  const roomCount = Math.min(Math.max(1, raw), n);
+  const base = Math.floor(n / roomCount);
+  let extra = n % roomCount;
+  const sizes = [];
+  for (let r = 0; r < roomCount; r++) {
+    sizes.push(base + (extra > 0 ? 1 : 0));
+    if (extra > 0) extra--;
+  }
+  const overCap = sizes.some((sz) => sz > cap);
+  return { roomCount, sizes, cap, overCap, autoMinRooms };
+}
+
 function teachersForGradeUi(grade) {
   const g = normGradeUi(grade);
   return (stateCache?.teachersRoster || []).filter((t) => {
@@ -2981,36 +3004,64 @@ function scheduleAddRefreshPreview() {
     if (!grade || n <= 0) {
       prevEl.textContent = "";
     } else {
-      const { roomCount, sizes } = previewRoomsSplit(n, cap);
+      const { roomCount, sizes, overCap, autoMinRooms } = scheduleAddRoomLayout();
       const mn = Math.min(...sizes);
       const mx = Math.max(...sizes);
       const dist =
         sizes.length <= 8
           ? sizes.join(", ")
           : `${sizes.slice(0, 6).join(", ")} … ${sizes[sizes.length - 2]}, ${sizes[sizes.length - 1]}`;
-      prevEl.textContent = `Rooms needed: ${roomCount} (max ${cap} students per room). Balanced sizes: ${dist} (${mn}–${mx} per room).`;
+      let text = `${roomCount} room${roomCount === 1 ? "" : "s"} (max ${cap} students per room). Balanced sizes: ${dist} (${mn}–${mx} students each).`;
+      if (overCap) {
+        text += ` — At least one room exceeds the cap; use at least ${autoMinRooms} rooms or raise max per room.`;
+      }
+      prevEl.textContent = text;
     }
   }
 }
 
-function scheduleAddRenderManualProctors() {
+function scheduleAddRenderRoomsAndProctors() {
   const wrap = $("#sched-manual-proctors");
   const btn = $("#btn-sched-assign-proctors");
+  const ro = $("#sched-rooms-readonly");
   if (!wrap) return;
   const grade = $("#sched-grade")?.value || "";
   const random = !!$("#sched-random")?.checked;
-  const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
   const monitors = Number($("#sched-monitors")?.value) === 2 ? 2 : 1;
   const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
-  const { roomCount, sizes } = previewRoomsSplit(n, cap);
+  const { roomCount, sizes } = scheduleAddRoomLayout();
+
+  if (ro) {
+    ro.classList.add("hidden");
+    ro.innerHTML = "";
+  }
 
   if (btn) {
     if (!random && grade && roomCount > 0) btn.classList.remove("hidden");
     else btn.classList.add("hidden");
   }
 
-  if (random || !grade || roomCount < 1) {
+  if (!grade || roomCount < 1 || n <= 0) {
     wrap.innerHTML = "";
+    return;
+  }
+
+  if (random) {
+    wrap.innerHTML = "";
+    if (ro) {
+      ro.classList.remove("hidden");
+      const title = document.createElement("div");
+      title.textContent = "Rooms for this exam:";
+      ro.appendChild(title);
+      const ul = document.createElement("ul");
+      ul.className = "sched-room-readonly-list";
+      sizes.forEach((sz, i) => {
+        const li = document.createElement("li");
+        li.textContent = `Room ${i + 1}: ${sz} student${sz === 1 ? "" : "s"} — proctors assigned randomly when you save.`;
+        ul.appendChild(li);
+      });
+      ro.appendChild(ul);
+    }
     return;
   }
 
@@ -3022,7 +3073,7 @@ function scheduleAddRenderManualProctors() {
   wrap.innerHTML = "";
   for (let i = 0; i < roomCount; i++) {
     const rid = `room-${i + 1}`;
-    const label = `Exam room ${i + 1}`;
+    const label = `Room ${i + 1}`;
     const sz = sizes[i] ?? 0;
     const row = document.createElement("div");
     row.className = "sched-room-proc-row";
@@ -3031,7 +3082,7 @@ function scheduleAddRenderManualProctors() {
     row.appendChild(head);
     for (let m = 0; m < monitors; m++) {
       const lab = document.createElement("label");
-      lab.textContent = monitors === 1 ? "Proctor" : m === 0 ? "Proctor 1" : "Proctor 2";
+      lab.textContent = monitors === 1 ? "Teacher" : m === 0 ? "Teacher 1" : "Teacher 2";
       const sel = document.createElement("select");
       sel.className = "sched-proc-sel";
       sel.dataset.room = rid;
@@ -3053,10 +3104,8 @@ function scheduleAddRenderManualProctors() {
 function scheduleAddFillProctorsAuto() {
   const grade = $("#sched-grade")?.value || "";
   const modelId = $("#sched-model")?.value || "";
-  const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
   const monitors = Number($("#sched-monitors")?.value) === 2 ? 2 : 1;
-  const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
-  const { roomCount } = previewRoomsSplit(n, cap);
+  const { roomCount } = scheduleAddRoomLayout();
   const poolIds = scheduleAddProctorPool(grade, modelId).map((t) => t.staffId);
   if (!poolIds.length) {
     alert("No teachers in the roster for this grade (check Supervised Grade).");
@@ -3096,7 +3145,7 @@ function bindScheduleUi() {
 
   const refreshScheduleAdd = () => {
     scheduleAddRefreshPreview();
-    scheduleAddRenderManualProctors();
+    scheduleAddRenderRoomsAndProctors();
   };
 
   $("#btn-schedule-open-add")?.addEventListener("click", async () => {
@@ -3145,10 +3194,32 @@ function bindScheduleUi() {
     const grade = $("#sched-grade")?.value || "";
     if (grade) scheduleAddFillSubjectSelect(grade);
     else scheduleAddResetSubjectSelect();
+    const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+    const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+    const rc = $("#sched-room-count");
+    if (rc && n > 0) {
+      rc.min = "1";
+      rc.max = String(n);
+      rc.value = String(Math.ceil(n / cap));
+    }
     refreshScheduleAdd();
   });
-  $("#sched-cap")?.addEventListener("input", refreshScheduleAdd);
+  $("#sched-cap")?.addEventListener("input", () => {
+    const grade = $("#sched-grade")?.value || "";
+    const n = grade && stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
+    const cap = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
+    const rc = $("#sched-room-count");
+    if (rc && n > 0) {
+      rc.max = String(n);
+      const minRooms = Math.ceil(n / cap);
+      const cur = Math.floor(Number(rc.value));
+      if (!Number.isFinite(cur) || cur < minRooms) rc.value = String(minRooms);
+    }
+    refreshScheduleAdd();
+  });
   $("#sched-cap")?.addEventListener("change", refreshScheduleAdd);
+  $("#sched-room-count")?.addEventListener("input", refreshScheduleAdd);
+  $("#sched-room-count")?.addEventListener("change", refreshScheduleAdd);
   $("#sched-monitors")?.addEventListener("change", refreshScheduleAdd);
   $("#sched-random")?.addEventListener("change", refreshScheduleAdd);
   $("#sched-model")?.addEventListener("change", refreshScheduleAdd);
@@ -3190,8 +3261,18 @@ function bindScheduleUi() {
     const maxStudentsPerRoom = Math.min(30, Math.max(1, Math.floor(Number($("#sched-cap")?.value) || 12)));
     const monitorsPerRoom = Number($("#sched-monitors")?.value) === 2 ? 2 : 1;
     const randomizeProctors = !!$("#sched-random")?.checked;
-    const n = stateCache?.studentCountByGrade ? Number(stateCache.studentCountByGrade[grade]) || 0 : 0;
-    const { roomCount } = previewRoomsSplit(n, maxStudentsPerRoom);
+    const layout = scheduleAddRoomLayout();
+    const { roomCount } = layout;
+    if (layout.overCap) {
+      alert(
+        `Each room may have at most ${maxStudentsPerRoom} students. Increase the number of rooms (at least ${layout.autoMinRooms}) or raise max per room.`,
+      );
+      return;
+    }
+    if (roomCount < 1) {
+      alert("Choose a grade and a valid number of exam rooms.");
+      return;
+    }
 
     const body = {
       targetGrade: grade,
@@ -3201,6 +3282,7 @@ function bindScheduleUi() {
       examEndAt: new Date(end).toISOString(),
       lobbyOpensMinutesBefore: Number($("#sched-lobby")?.value) || 10,
       maxStudentsPerRoom,
+      roomCount,
       monitorsPerRoom,
       randomizeProctors,
       contactLine: ($("#sched-contact") && $("#sched-contact").value.trim()) || "",
